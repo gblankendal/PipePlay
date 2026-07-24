@@ -1,4 +1,4 @@
-# yt — a keyboard-driven YouTube CLI player
+# PipePlay – Terminal YouTube Experience
 
 A single bash script that turns `mpv` + `yt-dlp` + `fzf` into a fast,
 no-browser way to search, watch, and organize YouTube videos and
