@@ -347,10 +347,7 @@ This script exists because I couldn't afford a computer that could
 handle YouTube normally. If it's useful to you and you're able to
 chip in toward a better laptop for me, it would mean a lot:
 
-**PayPal:** `https://paypal.me/YOUR-PAYPAL-USERNAME-HERE`
-
-*(placeholder link — replace with your actual PayPal.me handle before
-publishing this README)*
+**PayPal:** `https://www.paypal.com/ncp/payment/Y2KWVATVRLJSQ`
 
 No obligation at all — starring the repo or sharing it with someone
 else stuck on old hardware helps just as much.
