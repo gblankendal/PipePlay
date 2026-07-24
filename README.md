@@ -341,13 +341,16 @@ setups are especially useful.
 
 ---
 
-## Support this project
+## ❤️ Support This Project
 
-This script exists because I couldn't afford a computer that could
-handle YouTube normally. If it's useful to you and you're able to
-chip in toward a better laptop for me, it would mean a lot:
+I built this project on a 15-year-old Pentium PC because I couldn't afford a machine that could handle YouTube comfortably.
 
-[**DONATOIN PAGE**]([PAYPAL LINK](https://www.paypal.com/ncp/payment/Y2KWVATVRLJSQ))
+If this utility has helped you breathe new life into an old computer, and you'd like to support future development, consider making a small donation. It helps me maintain the project, add new features, and eventually upgrade my development hardware.
 
-No obligation at all — starring the repo or sharing it with someone
-else stuck on old hardware helps just as much.
+<p align="center">
+  <a href="https://www.paypal.com/ncp/payment/Y2KWVATVRLJSQ">
+    <img src="https://img.shields.io/badge/❤️_Donate_via_PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white" alt="Donate via PayPal">
+  </a>
+</p>
+
+No pressure at all—starring the repository, reporting bugs, or sharing it with someone else using older hardware helps just as much. ❤️
