@@ -347,7 +347,7 @@ This script exists because I couldn't afford a computer that could
 handle YouTube normally. If it's useful to you and you're able to
 chip in toward a better laptop for me, it would mean a lot:
 
-**PayPal:** `https://www.paypal.com/ncp/payment/Y2KWVATVRLJSQ`
+[**DONATOIN PAGE**]([PAYPAL LINK](https://www.paypal.com/ncp/payment/Y2KWVATVRLJSQ))
 
 No obligation at all — starring the repo or sharing it with someone
 else stuck on old hardware helps just as much.
