@@ -373,8 +373,6 @@ If you'd like to follow the project, verify ownership, or get updates, you can f
   <img src="https://img.shields.io/badge/X-@novarchx-000000?style=for-the-badge&logo=x&logoColor=white" alt="X">
 </a>
 
-<br><br>
-
 <a href="https://telegram.dog/ryncarter">
   <img src="https://img.shields.io/badge/Telegram-@ryncarter-26A5E4?style=for-the-badge&logo=telegram&logoColor=white" alt="Telegram">
 </a>
