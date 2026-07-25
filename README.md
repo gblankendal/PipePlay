@@ -353,4 +353,36 @@ If this utility has helped you breathe new life into an old computer, and you'd 
   </a>
 </p>
 
+---
+
+## 🌐 Socials
+
+If you'd like to follow the project, verify ownership, or get updates, you can find me here:
+
+<p align="center">
+
+<a href="https://www.reddit.com/user/kiarob/">
+  <img src="https://img.shields.io/badge/Reddit-u%2Fkiarob-FF4500?style=for-the-badge&logo=reddit&logoColor=white" alt="Reddit">
+</a>
+
+<a href="https://www.youtube.com/@TylerOrvex">
+  <img src="https://img.shields.io/badge/YouTube-@TylerOrvex-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="YouTube">
+</a>
+
+<a href="https://x.com/novarchx">
+  <img src="https://img.shields.io/badge/X-@novarchx-000000?style=for-the-badge&logo=x&logoColor=white" alt="X">
+</a>
+
+<br><br>
+
+<a href="https://telegram.dog/ryncarter">
+  <img src="https://img.shields.io/badge/Telegram-@ryncarter-26A5E4?style=for-the-badge&logo=telegram&logoColor=white" alt="Telegram">
+</a>
+
+<a href="https://www.web.us.kg/">
+  <img src="https://img.shields.io/badge/Website-web.us.kg-0A66C2?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Website">
+</a>
+
+</p>
+
 No pressure at all—starring the repository, reporting bugs, or sharing it with someone else using older hardware helps just as much. ❤️
