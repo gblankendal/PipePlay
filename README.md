@@ -355,9 +355,7 @@ If this utility has helped you breathe new life into an old computer, and you'd 
 
 ---
 
-## 🌐 Socials
-
-If you'd like to follow the project, verify ownership, or get updates, you can find me here:
+## 🌐 Connect
 
 <p align="center">
 
@@ -383,4 +381,4 @@ If you'd like to follow the project, verify ownership, or get updates, you can f
 
 </p>
 
-No pressure at all—starring the repository, reporting bugs, or sharing it with someone else using older hardware helps just as much. ❤️
+If PipePlay helped you, a ⭐ on the repo, bug reports, feature suggestions, or simply sharing it with someone else using older hardware all mean a lot. ❤️
