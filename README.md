@@ -368,7 +368,7 @@ If this utility has helped you breathe new life into an old computer, and you'd 
 </a>
 
 <a href="https://x.com/novarchx">
-  <img src="https://img.shields.io/badge/X-@novarchx-000000?style=for-the-badge&logo=x&logoColor=white" alt="X">
+  <img src="https://img.shields.io/badge/X-@novarchx-000000?style=for-the-badge&logo=x&logoColor=white" alt="">
 </a>
 
 <a href="https://telegram.dog/ryncarter">
