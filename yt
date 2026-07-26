@@ -19,57 +19,38 @@
 #   yt --clean                    (manually deep-clean cache + all resume data)
 #
 # Options (can appear anywhere on the command line, not just before terms):
-#   -480 / -720 / -1080     Max playback resolution (default 720, see below)
+#   -480 / -720 / -1080     Max playback resolution (default 720)
 #   -a / -audio              Audio only
 #   -l                       Interactive search via fzf
 #   -L                       Interactive search via fzf, show details before playback
 #   -loop                    Loop the current video (or whole playlist) forever
 #
-# Local data (XDG layout):
-#   ~/.local/share/yt/playlists/*.json   saved playlists
-#   ~/.local/share/yt/watch_later/       mpv resume data (per-video & per-playlist)
-#   ~/.local/share/yt/cache/             scratch space, wiped every session
-#
-# ---------------------------------------------------------------------------
-# Automatic housekeeping: every time the script exits (normally, on error,
-# or via Ctrl-C) it clears yt-dlp's own disk cache and prunes anything in
-# watch_later that hasn't been touched in CACHE_MAX_AGE_DAYS days. Saved
-# playlists and recent resume points are never touched automatically.
-# Run `yt --clean` any time for an on-demand deep clean (this DOES wipe all
-# resume points, not just stale ones -- useful when you're tight on disk).
-# ---------------------------------------------------------------------------
-#
-# System-tuning notes (see bottom of file for the actual variables):
-# This build defaults its mpv flags for a low-power box (old dual-core CPU,
-# no working H.264 hardware decode, 4GB RAM, small SSD, ~1366x768 display).
-# Edit HWDEC / VO_CHAIN / CPU_THREADS / QUALITY below if you move this
-# script to different hardware.
-#
-set -o pipefail
+
+# shellcheck disable=SC1091  # We intentionally source files; not checking them individually
+set -Eeuo pipefail
+
+# This script's directory (for sourcing library modules)
+LIB_DIR="$(dirname "${BASH_SOURCE[0]}")/lib"
+readonly LIB_DIR
 
 # ---------------------------------------------------------------------------
-# Globals (populated by parse_flags / init_dirs)
+# Source all library modules
 # ---------------------------------------------------------------------------
 
-# --- System / performance tuning -------------------------------------------
-# Defaults below are chosen for: Pentium Dual-Core E5700 (2C/2T @ 3GHz),
-# 4GB RAM, Intel G41 integrated graphics (no usable H.264 hw decode on this
-# chip), and a Samsung TV display at ~1366x768.
-QUALITY=720                 # 720p matches the ~1366x768 display; 1080p just
-                             # burns CPU for zero visible benefit here.
-HWDEC="no"                  # G41/Mesa has no reliable H.264 hw decode path;
-                             # forcing "no" avoids wasted probing/instability.
-                             # Bump to "auto" yourself if you ever move to
-                             # newer hardware.
-VO_CHAIN="gpu,x11"          # NOTE: xv was tried here first as a "lightweight"
-                             # option, but on this system mpv itself reports
-                             # xv doing a slow software path ("X11 can't keep
-                             # up") -- so it's dropped. gpu (via Mesa) with a
-                             # plain x11 fallback tested better in practice.
-CPU_THREADS=2                # Matches the 2 physical cores/threads available.
-DEMUX_MAX="50MiB"           # Keep mpv's demuxer cache modest given 4GB RAM
-DEMUX_BACK="25MiB"          # and a nearly-full 20GB root partition.
-CACHE_MAX_AGE_DAYS=45       # Auto-prune watch_later entries older than this.
+# Load modules in dependency order
+source "$LIB_DIR/logging.sh" || { echo "Failed to load logging.sh" >&2; exit 1; }
+source "$LIB_DIR/utils.sh" || { die "Failed to load utils.sh"; }
+source "$LIB_DIR/dependencies.sh" || { die "Failed to load dependencies.sh"; }
+source "$LIB_DIR/config.sh" || { die "Failed to load config.sh"; }
+source "$LIB_DIR/ui.sh" || { die "Failed to load ui.sh"; }
+source "$LIB_DIR/search.sh" || { die "Failed to load search.sh"; }
+source "$LIB_DIR/player.sh" || { die "Failed to load player.sh"; }
+source "$LIB_DIR/playlists.sh" || { die "Failed to load playlists.sh"; }
+source "$LIB_DIR/cache.sh" || { die "Failed to load cache.sh"; }
+
+# ---------------------------------------------------------------------------
+# Global State (populated by parse_flags)
+# ---------------------------------------------------------------------------
 
 AUDIO_ONLY=0
 LIST_MODE=0
@@ -77,141 +58,17 @@ DETAILED_MODE=0
 LOOP_MODE=0
 ACTION=""
 QUERY=""
-FORMAT=""
-
-DATA_DIR=""
-PLAYLISTS_DIR=""
-CACHE_DIR=""
-WATCH_LATER_DIR=""
-HISTORY_FILE=""
+QUALITY="$DEFAULT_QUALITY"
 
 # ---------------------------------------------------------------------------
-# check_deps: make sure everything we shell out to is actually installed,
-# instead of failing halfway through with a cryptic "command not found".
+# Argument Parsing
 # ---------------------------------------------------------------------------
-check_deps() {
-    local missing=() c
-    for c in mpv yt-dlp jq fzf; do
-        command -v "$c" >/dev/null 2>&1 || missing+=("$c")
-    done
-    if [[ ${#missing[@]} -gt 0 ]]; then
-        echo "Missing required tool(s): ${missing[*]}" >&2
-        echo "Install them and make sure they're on your PATH, then try again." >&2
-        exit 1
-    fi
-}
 
-# ---------------------------------------------------------------------------
-# init_dirs: set up the XDG-style data directory the first time we run.
-# ---------------------------------------------------------------------------
-init_dirs() {
-    DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/yt"
-    PLAYLISTS_DIR="$DATA_DIR/playlists"
-    CACHE_DIR="$DATA_DIR/cache"
-    WATCH_LATER_DIR="$DATA_DIR/watch_later"
-    HISTORY_FILE="$DATA_DIR/history.json"
-
-    mkdir -p "$PLAYLISTS_DIR" "$CACHE_DIR" "$WATCH_LATER_DIR"
-    [[ -f "$HISTORY_FILE" ]] || echo "{}" > "$HISTORY_FILE"
-}
-
-# ---------------------------------------------------------------------------
-# cleanup_session: runs automatically on every exit (trap). Conservative by
-# design -- only removes data that is genuinely disposable or clearly stale.
-# Never touches saved playlists, and only prunes watch_later entries older
-# than CACHE_MAX_AGE_DAYS so anything you might still resume is kept.
-# ---------------------------------------------------------------------------
-cleanup_session() {
-    # 1. yt-dlp's own on-disk cache (thumbnails/extractor cache) is fully
-    #    disposable and regenerates on demand -- safe to clear every time.
-    if command -v yt-dlp >/dev/null 2>&1; then
-        yt-dlp --rm-cache-dir >/dev/null 2>&1
-    fi
-
-    # 2. Stray *.tmp files left behind if --sync got interrupted mid-write.
-    [[ -d "$PLAYLISTS_DIR" ]] && find "$PLAYLISTS_DIR" -maxdepth 1 -name '*.tmp' -delete 2>/dev/null
-
-    # 3. Our own scratch cache dir -- nothing in here is meant to survive
-    #    past a single run.
-    [[ -d "$CACHE_DIR" ]] && find "$CACHE_DIR" -mindepth 1 -delete 2>/dev/null
-
-    # 4. Prune old, likely-abandoned mpv resume/watch_later entries.
-    [[ -d "$WATCH_LATER_DIR" ]] && find "$WATCH_LATER_DIR" -type f -mtime "+${CACHE_MAX_AGE_DAYS}" -delete 2>/dev/null
-
-    return 0
-}
-
-# ---------------------------------------------------------------------------
-# action_clean_cache: `yt --clean` - an explicit, more aggressive purge for
-# when you're tight on disk right now. Unlike the automatic cleanup, this
-# wipes ALL watch_later resume points (not just stale ones), so you'll lose
-# your place in anything you were mid-way through. Saved playlists (the
-# actual video lists you built with --save-playlist) are never deleted.
-# ---------------------------------------------------------------------------
-action_clean_cache() {
-    echo "Cleaning yt-dlp cache, scratch space, and all resume points..." >&2
-    local before after
-    before=$(du -sh "$DATA_DIR" 2>/dev/null | cut -f1)
-
-    if command -v yt-dlp >/dev/null 2>&1; then
-        yt-dlp --rm-cache-dir >/dev/null 2>&1
-    fi
-    find "$PLAYLISTS_DIR" -maxdepth 1 -name '*.tmp' -delete 2>/dev/null
-    find "$CACHE_DIR" -mindepth 1 -delete 2>/dev/null
-    find "$WATCH_LATER_DIR" -type f -delete 2>/dev/null
-
-    after=$(du -sh "$DATA_DIR" 2>/dev/null | cut -f1)
-    echo "Done. Saved playlists were left untouched. (~${before:-?} -> ~${after:-?})" >&2
-}
-
-# ---------------------------------------------------------------------------
-# usage: print help text
-# ---------------------------------------------------------------------------
-usage() {
-    cat <<EOF
-Usage:
-  yt VIDEO_ID
-  yt URL
-  yt search terms
-  yt -l search terms
-  yt -L search terms
-
-Playlists & Library:
-  yt PLAYLIST_URL_OR_ID          Browse/play a playlist (not saved)
-  yt --save-playlist URL         Save a playlist into your local library
-  yt --playlists, --library      Browse your saved playlists
-  yt --study [NAME]              Resume a saved playlist where you left off
-  yt --sync [NAME]               Refetch saved playlist(s), report new videos
-  yt --shuffle NAME               Play a saved playlist in shuffled order
-  yt --queue NameA,NameB,...     Play several saved playlists back to back
-
-Maintenance:
-  yt --clean                     Deep-clean cache + ALL resume points now
-                                  (playlists are auto-cleaned conservatively
-                                  after every run; this is the manual, more
-                                  aggressive version)
-
-Options (can go anywhere on the command line):
-  -480          Max 480p
-  -720          Max 720p (default -- matches this display)
-  -1080         Max 1080p
-  -a, -audio    Audio only
-  -l            Interactive search (fzf)
-  -L            Interactive search (fzf) with detailed metadata before playback
-  -loop         Loop the current video (or whole playlist) forever
-EOF
-}
-
-# ---------------------------------------------------------------------------
-# parse_flags: scans ALL of "$@" for flags, wherever they appear (not just
-# leading), and collects everything else into QUERY. This matters for
-# something like `yt despacito -loop`, where the flag comes after the
-# search terms -- that now works instead of being silently swallowed into
-# the search query.
-# ---------------------------------------------------------------------------
+# Parse command-line arguments
+# Flags can appear anywhere in the command line
 parse_flags() {
     local -a rest=()
-
+    
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -480)
@@ -223,7 +80,7 @@ parse_flags() {
             -1080)
                 QUALITY=1080
                 ;;
-            -audio|-a)
+            -audio | -a)
                 AUDIO_ONLY=1
                 ;;
             -l)
@@ -233,13 +90,13 @@ parse_flags() {
                 LIST_MODE=1
                 DETAILED_MODE=1
                 ;;
-            -loop|--loop)
+            -loop | --loop)
                 LOOP_MODE=1
                 ;;
             --save-playlist)
                 ACTION="save_playlist"
                 ;;
-            --playlists|--library)
+            --playlists | --library)
                 ACTION="library"
                 ;;
             --study)
@@ -254,748 +111,202 @@ parse_flags() {
             --queue)
                 ACTION="queue"
                 ;;
-            --clean|--clean-cache)
+            --clean | --clean-cache)
                 ACTION="clean_cache"
                 ;;
             -*)
-                echo "Unknown option: $1" >&2
-                exit 1
+                die "Unknown option: $1"
                 ;;
             *)
                 rest+=("$1")
                 ;;
         esac
-        shift
+        shift || true
     done
-
-    QUERY="${rest[*]}"
+    
+    QUERY="${rest[*]:-}"
 }
 
 # ---------------------------------------------------------------------------
-# format_views: 35378567 -> 35.3M   (999 -> 999, 0/empty -> "-")
+# Action Handlers
 # ---------------------------------------------------------------------------
-format_views() {
-    local n=$1
-    if [[ -z "$n" || "$n" == "null" ]] || ! [[ "$n" =~ ^[0-9]+$ ]] || [[ "$n" -eq 0 ]]; then
-        echo "-"
-        return
+
+# Handle interactive search mode (-l or -L)
+action_interactive_search() {
+    if [[ -z "$QUERY" ]]; then
+        die "Search query required"
     fi
-    awk -v n="$n" 'BEGIN {
-        if (n >= 1000000000) printf "%.1fB", n/1000000000
-        else if (n >= 1000000) printf "%.1fM", n/1000000
-        else if (n >= 1000) printf "%.1fK", n/1000
-        else printf "%d", n
-    }'
-}
-
-# ---------------------------------------------------------------------------
-# format_duration: 158 -> 2:38   (3725 -> 1:02:05, 0/empty -> "-")
-# ---------------------------------------------------------------------------
-format_duration() {
-    local secs=$1
-    if [[ -z "$secs" || "$secs" == "null" ]] || ! [[ "$secs" =~ ^[0-9]+$ ]] || [[ "$secs" -eq 0 ]]; then
-        echo "-"
-        return
-    fi
-    local h=$((secs / 3600))
-    local m=$(((secs % 3600) / 60))
-    local s=$((secs % 60))
-    if [[ $h -gt 0 ]]; then
-        printf "%d:%02d:%02d" "$h" "$m" "$s"
-    else
-        printf "%d:%02d" "$m" "$s"
-    fi
-}
-
-# ---------------------------------------------------------------------------
-# truncate_title: truncate arbitrary text to a max length with an ellipsis.
-# Usage: truncate_title "text" [maxlen]
-# ---------------------------------------------------------------------------
-truncate_title() {
-    local text=$1
-    local maxlen=${2:-57}
-    if [[ ${#text} -gt $maxlen ]]; then
-        echo "${text:0:$((maxlen - 1))}…"
-    else
-        echo "$text"
-    fi
-}
-
-# ---------------------------------------------------------------------------
-# slugify: "Physics Wallah - Electrostatics!" -> "physics_wallah_electrostatics"
-# Used as the filename key for saved playlists.
-# ---------------------------------------------------------------------------
-slugify() {
-    echo "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/_/g; s/^_+|_+$//g'
-}
-
-# ---------------------------------------------------------------------------
-# build_mpv_args: populates the global MPV_ARGS array with the base flag
-# set shared by every mpv invocation (play / play_playlist / queue), so
-# hardware-tuning and cleanup-relevant paths only live in one place.
-# ---------------------------------------------------------------------------
-build_mpv_args() {
-    MPV_ARGS=(
-        --hwdec="$HWDEC"
-        --vo="$VO_CHAIN"
-        --gpu-api=opengl           # skip probing for Vulkan (none exists on
-                                   # this hardware) and go straight to GL
-        --msg-level=ffmpeg=error,vo=error  # hides harmless fallback chatter
-                                   # (Vulkan probe failing, old-GLSL scaler
-                                   # notices, the "Late SEI" decoder notice)
-                                   # without hiding real errors
-        --vd-lavc-threads="$CPU_THREADS"
-        --demuxer-max-bytes="$DEMUX_MAX"
-        --demuxer-max-back-bytes="$DEMUX_BACK"
-        --ytdl-format="$FORMAT"
-        --save-position-on-quit
-        --watch-later-directory="$WATCH_LATER_DIR"
-    )
-}
-
-# ---------------------------------------------------------------------------
-# play: hand a single video URL off to mpv using the globally configured
-# FORMAT. Honors -loop (loops that one file) and always saves resume
-# position so the same video/URL can pick back up later.
-# ---------------------------------------------------------------------------
-play() {
-    local url="$1"
-    build_mpv_args
-    [[ $LOOP_MODE -eq 1 ]] && MPV_ARGS+=(--loop-file=inf)
-    mpv "${MPV_ARGS[@]}" "$url"
-}
-
-# ---------------------------------------------------------------------------
-# play_playlist: hand a playlist URL to mpv. mpv/yt-dlp natively expand a
-# playlist URL into its full list of entries, so this one call covers
-# "play all", "shuffle all", and "start at track N" (used for resume).
-#
-# Usage: play_playlist URL [START_INDEX] [SHUFFLE(0|1)]
-# ---------------------------------------------------------------------------
-play_playlist() {
-    local url="$1" start_index="$2" shuffle="${3:-0}"
-    build_mpv_args
-    [[ -n "$start_index" ]] && MPV_ARGS+=(--playlist-start=$((start_index - 1)))
-    [[ "$shuffle" -eq 1 ]] && MPV_ARGS+=(--shuffle)
-    [[ $LOOP_MODE -eq 1 ]] && MPV_ARGS+=(--loop-playlist=inf)
-    mpv "${MPV_ARGS[@]}" "$url"
-}
-
-# ---------------------------------------------------------------------------
-# search_first: play the first search result for a query.
-#
-# NOTE: this used to hand mpv a live "ytdl://ytsearch:..." URL and let
-# mpv/yt-dlp's hook re-resolve the search itself. That's what broke -loop
-# for search terms: -loop-file=inf makes mpv re-run the *search* on every
-# loop instead of looping a fixed video, which is unreliable and can just
-# silently stop looping. Fix: resolve the search to one concrete video ID
-# ourselves first, then play that like any normal URL -- so looping behaves
-# exactly like it already does for a direct video ID/URL.
-# ---------------------------------------------------------------------------
-search_first() {
-    local query="$1"
-    echo "Searching YouTube for: $query" >&2
-
-    local json id
-    json=$(yt-dlp --flat-playlist -J "ytsearch1:${query}" 2>/dev/null)
-    id=$(jq -r '.entries[0].id // empty' <<< "$json" 2>/dev/null)
-
-    if [[ -z "$id" ]]; then
-        echo "No results found." >&2
-        exit 1
-    fi
-
-    play "https://youtu.be/${id}"
-}
-
-# ---------------------------------------------------------------------------
-# fzf_select_id: run a fast (flat-playlist) 10-result YouTube search, show it
-# in fzf as Title / Channel / Views / Duration, and echo the chosen video ID.
-# Returns non-zero (and echoes nothing) if the user aborts the picker.
-# ---------------------------------------------------------------------------
-fzf_select_id() {
-    local query="$*"
-    echo "Searching YouTube for: $query" >&2
-
-    local json
-    json=$(yt-dlp --flat-playlist -J "ytsearch10:${query}" 2>/dev/null)
-
-    if [[ -z "$json" ]]; then
-        echo "No results found." >&2
-        return 1
-    fi
-
-    local raw
-    raw=$(jq -r '.entries[]? |
-        [(.id // ""), (.title // "Unknown title"),
-         (.channel // .uploader // "Unknown"),
-         (.view_count // 0), (.duration // 0)] | @tsv' <<< "$json")
-
-    if [[ -z "$raw" ]]; then
-        echo "No results found." >&2
-        return 1
-    fi
-
-    local fzf_input="" id title channel views duration
-    local disp_title disp_channel disp_views disp_duration line
-    while IFS=$'\t' read -r id title channel views duration; do
-        [[ -z "$id" ]] && continue
-        disp_title=$(truncate_title "$title" 57)
-        disp_channel=$(truncate_title "$channel" 20)
-        disp_views=$(format_views "$views")
-        disp_duration=$(format_duration "$duration")
-        line=$(printf "%-58s %-21s %8s %8s" "$disp_title" "$disp_channel" "$disp_views" "$disp_duration")
-        fzf_input+="${id}"$'\t'"${line}"$'\n'
-    done <<< "$raw"
-
-    local header
-    header=$(printf "%-58s %-21s %8s %8s" "TITLE" "CHANNEL" "VIEWS" "LENGTH")
-
-    local selected
-    selected=$(printf '%s' "$fzf_input" | fzf \
-        --delimiter=$'\t' \
-        --with-nth=2 \
-        --prompt="yt search> " \
-        --height=90% \
-        --border \
-        --header="$header" \
-        --header-first \
-        --no-multi)
-
-    [[ -z "$selected" ]] && return 1
-
-    cut -f1 <<< "$selected"
-}
-
-# ---------------------------------------------------------------------------
-# interactive_search: -l mode. Pick a video via fzf, play it immediately.
-# ---------------------------------------------------------------------------
-interactive_search() {
+    
     local id
-    id=$(fzf_select_id "$@") || exit 0
-    play "https://youtu.be/${id}"
-}
-
-# ---------------------------------------------------------------------------
-# interactive_search_detailed: -L mode. Pick a video via fzf, fetch full
-# metadata for ONLY that video, show it, then play.
-# ---------------------------------------------------------------------------
-interactive_search_detailed() {
-    local id
-    id=$(fzf_select_id "$@") || exit 0
-
-    echo "Fetching details..." >&2
-    local detail
-    detail=$(yt-dlp -J "https://youtu.be/${id}" 2>/dev/null)
-
-    if [[ -z "$detail" ]]; then
-        echo "Could not fetch metadata, playing anyway..." >&2
-        play "https://youtu.be/${id}"
-        return
-    fi
-
-    local d_title d_channel d_views d_duration d_upload
-    d_title=$(jq -r '.title // "Unknown"' <<< "$detail")
-    d_channel=$(jq -r '.channel // .uploader // "Unknown"' <<< "$detail")
-    d_views=$(jq -r '.view_count // 0' <<< "$detail")
-    d_duration=$(jq -r '.duration // 0' <<< "$detail")
-    d_upload=$(jq -r '.upload_date // empty' <<< "$detail")
-
-    echo
-    echo "Title:    $d_title"
-    echo "Channel:  $d_channel"
-    echo "Views:    $(format_views "$d_views")"
-    if [[ -n "$d_upload" ]]; then
-        echo "Uploaded: ${d_upload:0:4}-${d_upload:4:2}-${d_upload:6:2}"
-    fi
-    echo "Duration: $(format_duration "$d_duration")"
-    echo
-
-    play "https://youtu.be/${id}"
-}
-
-# ---------------------------------------------------------------------------
-# is_playlist: does this look like a playlist URL or a bare playlist ID?
-# ---------------------------------------------------------------------------
-is_playlist() {
-    local q="$1"
-    [[ "$q" == *"list="* ]] && return 0
-    [[ "$q" =~ ^(PL|UU|LL|FL|RD|OL)[A-Za-z0-9_-]{10,}$ ]] && return 0
-    return 1
-}
-
-# ---------------------------------------------------------------------------
-# extract_playlist_id: pull the list=... value out of a URL, or pass a bare
-# playlist ID straight through.
-# ---------------------------------------------------------------------------
-extract_playlist_id() {
-    local q="$1"
-    if [[ "$q" == *"list="* ]]; then
-        echo "$q" | grep -oP 'list=\K[^&]+'
-    else
-        echo "$q"
-    fi
-}
-
-# ---------------------------------------------------------------------------
-# canonical_playlist_url: build a normalized playlist URL from an ID.
-# ---------------------------------------------------------------------------
-canonical_playlist_url() {
-    echo "https://www.youtube.com/playlist?list=$1"
-}
-
-# ---------------------------------------------------------------------------
-# playlist_picker: shared fzf UI for browsing a playlist's videos, whether
-# it came from a saved library file or a fresh (unsaved) fetch.
-#
-# Usage: playlist_picker NAME URL VIDEO_TSV
-#   VIDEO_TSV: one line per video, columns: title \t channel \t duration
-# ---------------------------------------------------------------------------
-playlist_picker() {
-    local name="$1" url="$2" video_tsv="$3"
-
-    local fzf_input=""
-    fzf_input+="ALL"$'\t'""$'\t'"▶  Play All"$'\n'
-    fzf_input+="SHUFFLE"$'\t'""$'\t'"🔀  Shuffle All"$'\n'
-
-    local idx=0 title channel duration disp_title disp_channel disp_duration line
-    while IFS=$'\t' read -r title channel duration; do
-        idx=$((idx + 1))
-        disp_title=$(truncate_title "$title" 50)
-        disp_channel=$(truncate_title "$channel" 18)
-        disp_duration=$(format_duration "$duration")
-        line=$(printf "%3d. %-50s %-18s %8s" "$idx" "$disp_title" "$disp_channel" "$disp_duration")
-        fzf_input+="VIDEO"$'\t'"${idx}"$'\t'"${line}"$'\n'
-    done <<< "$video_tsv"
-
-    local selected
-    selected=$(printf '%s' "$fzf_input" | fzf \
-        --delimiter=$'\t' \
-        --with-nth=3 \
-        --prompt="${name}> " \
-        --height=90% \
-        --border \
-        --header="Playlist: ${name}  (Enter: play all / shuffle all / jump to a track)")
-
-    [[ -z "$selected" ]] && return 1
-
-    local control idx_sel
-    IFS=$'\t' read -r control idx_sel _ <<< "$selected"
-
-    case "$control" in
-        ALL)     play_playlist "$url" "" 0 ;;
-        SHUFFLE) play_playlist "$url" "" 1 ;;
-        VIDEO)   play_playlist "$url" "$idx_sel" 0 ;;
-    esac
-}
-
-# ---------------------------------------------------------------------------
-# handle_adhoc_playlist: user passed a playlist URL/ID directly, without
-# saving it. Fetch a quick flat listing and open the picker.
-# ---------------------------------------------------------------------------
-handle_adhoc_playlist() {
-    local query="$1"
-    local pid url json title videos_tsv
-
-    pid=$(extract_playlist_id "$query")
-    if [[ -z "$pid" ]]; then
-        echo "Could not parse a playlist ID from: $query" >&2
-        exit 1
-    fi
-    url=$(canonical_playlist_url "$pid")
-
-    echo "Fetching playlist..." >&2
-    json=$(yt-dlp --flat-playlist -J "$url" 2>/dev/null)
-    if [[ -z "$json" ]]; then
-        echo "Failed to fetch playlist." >&2
-        exit 1
-    fi
-
-    title=$(jq -r '.title // "Untitled Playlist"' <<< "$json")
-    videos_tsv=$(jq -r '.entries[]? |
-        [(.title // "Unknown"), (.channel // .uploader // "Unknown"), (.duration // 0)] | @tsv' <<< "$json")
-
-    playlist_picker "$title" "$url" "$videos_tsv"
-}
-
-# ---------------------------------------------------------------------------
-# save_playlist: fetch a playlist's metadata and store it as JSON under
-# PLAYLISTS_DIR, keyed by a slug of its title. If two different playlists
-# happen to slugify to the same filename, the second one gets a short
-# suffix instead of silently overwriting the first.
-# ---------------------------------------------------------------------------
-save_playlist() {
-    local input="$1"
-    if [[ -z "$input" ]]; then
-        echo "Usage: yt --save-playlist <playlist URL or ID>" >&2
-        exit 1
-    fi
-
-    local pid url json title slug outfile videos count existing_pid
-    pid=$(extract_playlist_id "$input")
-    if [[ -z "$pid" ]]; then
-        echo "Not a valid playlist URL or ID: $input" >&2
-        exit 1
-    fi
-    url=$(canonical_playlist_url "$pid")
-
-    echo "Fetching playlist metadata..." >&2
-    json=$(yt-dlp --flat-playlist -J "$url" 2>/dev/null)
-    if [[ -z "$json" ]]; then
-        echo "Failed to fetch playlist." >&2
-        exit 1
-    fi
-
-    title=$(jq -r '.title // "Untitled Playlist"' <<< "$json")
-    slug=$(slugify "$title")
-    [[ -z "$slug" ]] && slug="$pid"
-    outfile="$PLAYLISTS_DIR/${slug}.json"
-
-    # Slug collision guard: only reuse the file if it's actually the same
-    # playlist (re-saving to refresh it); otherwise pick a distinct name.
-    if [[ -f "$outfile" ]]; then
-        existing_pid=$(jq -r '.playlist_id // empty' "$outfile" 2>/dev/null)
-        if [[ -n "$existing_pid" && "$existing_pid" != "$pid" ]]; then
-            slug="${slug}_${pid: -6}"
-            outfile="$PLAYLISTS_DIR/${slug}.json"
-        fi
-    fi
-
-    videos=$(jq '[.entries[]? | {
-        id: (.id // ""),
-        title: (.title // "Unknown"),
-        channel: (.channel // .uploader // "Unknown"),
-        duration: (.duration // 0),
-        view_count: (.view_count // 0),
-        url: ("https://youtu.be/" + (.id // ""))
-    }]' <<< "$json")
-
-    jq -n \
-        --arg name "$title" \
-        --arg pid "$pid" \
-        --arg url "$url" \
-        --argjson videos "$videos" \
-        --arg updated "$(date -Iseconds)" \
-        '{name: $name, playlist_id: $pid, source_url: $url, videos: $videos, updated_at: $updated}' \
-        > "$outfile"
-
-    count=$(jq 'length' <<< "$videos")
-    echo "Saved playlist '${title}' (${count} videos) -> ${outfile}" >&2
-}
-
-# ---------------------------------------------------------------------------
-# list_saved_playlist_files: newline-separated paths of saved playlist JSON.
-# ---------------------------------------------------------------------------
-list_saved_playlist_files() {
-    find "$PLAYLISTS_DIR" -maxdepth 1 -name '*.json' -print 2>/dev/null
-}
-
-# ---------------------------------------------------------------------------
-# find_playlist_file_by_name: resolve a user-typed name to a saved playlist
-# JSON file, first by slug match, then by fuzzy name match.
-# ---------------------------------------------------------------------------
-find_playlist_file_by_name() {
-    local name="$1"
-    local slug f2 n
-    slug=$(slugify "$name")
-
-    local f="$PLAYLISTS_DIR/${slug}.json"
-    if [[ -f "$f" ]]; then
-        echo "$f"
-        return 0
-    fi
-
-    for f2 in "$PLAYLISTS_DIR"/*.json; do
-        [[ -f "$f2" ]] || continue
-        n=$(jq -r '.name' "$f2" 2>/dev/null)
-        if [[ "$(slugify "$n")" == "$slug" ]]; then
-            echo "$f2"
+    id=$(fzf_select_id "$QUERY") || return 0  # User cancelled
+    
+    if [[ $DETAILED_MODE -eq 1 ]]; then
+        # Fetch and display metadata
+        local detail
+        detail=$(fetch_video_metadata "https://youtu.be/$id") || {
+            log_warn "Could not fetch metadata, playing anyway..."
+            play_video "https://youtu.be/$id" "$QUALITY" "$AUDIO_ONLY" "$LOOP_MODE"
             return 0
-        fi
-    done
-    return 1
-}
-
-# ---------------------------------------------------------------------------
-# browse_saved_playlist_file: open the picker UI for a saved playlist file.
-# ---------------------------------------------------------------------------
-browse_saved_playlist_file() {
-    local file="$1"
-    local name url videos_tsv
-    name=$(jq -r '.name' "$file")
-    url=$(jq -r '.source_url' "$file")
-    videos_tsv=$(jq -r '.videos[] | [(.title), (.channel), (.duration)] | @tsv' "$file")
-    playlist_picker "$name" "$url" "$videos_tsv"
-}
-
-# ---------------------------------------------------------------------------
-# resume_playlist_file: jump straight back into a saved playlist. mpv's own
-# --save-position-on-quit / --watch-later-directory data (keyed by this same
-# URL) is what actually restores the exact video + timestamp.
-# ---------------------------------------------------------------------------
-resume_playlist_file() {
-    local file="$1"
-    local name url
-    name=$(jq -r '.name' "$file")
-    url=$(jq -r '.source_url' "$file")
-    echo "Resuming: $name" >&2
-    play_playlist "$url" "" 0
-}
-
-# ---------------------------------------------------------------------------
-# library_browse: fzf list of saved playlist names.
-#   mode="browse" (default) -> open playlist_picker (play all/shuffle/track)
-#   mode="study"             -> resume immediately, no extra menu
-# ---------------------------------------------------------------------------
-library_browse() {
-    local mode="${1:-browse}"
-    local files
-    files=$(list_saved_playlist_files)
-
-    if [[ -z "$files" ]]; then
-        echo "No saved playlists yet. Try: yt --save-playlist <url>" >&2
-        exit 0
-    fi
-
-    local entries="" f name
-    while read -r f; do
-        [[ -z "$f" ]] && continue
-        name=$(jq -r '.name' "$f")
-        entries+="${name}"$'\t'"${f}"$'\n'
-    done <<< "$files"
-
-    local selected
-    selected=$(printf '%s' "$entries" | fzf \
-        --delimiter=$'\t' \
-        --with-nth=1 \
-        --prompt="library> " \
-        --height=60% \
-        --border \
-        --header="Saved Playlists")
-
-    [[ -z "$selected" ]] && exit 0
-
-    local file
-    file=$(cut -f2 <<< "$selected")
-
-    if [[ "$mode" == "study" ]]; then
-        resume_playlist_file "$file"
-    else
-        browse_saved_playlist_file "$file"
-    fi
-}
-
-# ---------------------------------------------------------------------------
-# action_study: yt --study [NAME]
-# ---------------------------------------------------------------------------
-action_study() {
-    local name="$1"
-    if [[ -z "$name" ]]; then
-        library_browse "study"
-        return
-    fi
-
-    local file
-    file=$(find_playlist_file_by_name "$name") || {
-        echo "No saved playlist matching '$name'. Use --playlists to browse, or --save-playlist to add one." >&2
-        exit 1
-    }
-    resume_playlist_file "$file"
-}
-
-# ---------------------------------------------------------------------------
-# action_shuffle_playlist: yt --shuffle NAME
-# ---------------------------------------------------------------------------
-action_shuffle_playlist() {
-    local name="$1"
-    if [[ -z "$name" ]]; then
-        echo "Usage: yt --shuffle <playlist name>" >&2
-        exit 1
-    fi
-
-    local file
-    file=$(find_playlist_file_by_name "$name") || {
-        echo "No saved playlist matching '$name'. Use --playlists to browse, or --save-playlist to add one." >&2
-        exit 1
-    }
-
-    local url
-    url=$(jq -r '.source_url' "$file")
-    echo "Shuffling: $(jq -r '.name' "$file")" >&2
-    play_playlist "$url" "" 1
-}
-
-# ---------------------------------------------------------------------------
-# sync_one_playlist: refetch a saved playlist, report how many videos are
-# new, and update the stored copy.
-# ---------------------------------------------------------------------------
-sync_one_playlist() {
-    local file="$1"
-    local pname url json old_ids new_ids videos added
-
-    pname=$(jq -r '.name' "$file")
-    url=$(jq -r '.source_url' "$file")
-    echo "Syncing: $pname ..." >&2
-
-    old_ids=$(jq -r '.videos[].id' "$file" | sort)
-
-    json=$(yt-dlp --flat-playlist -J "$url" 2>/dev/null)
-    if [[ -z "$json" ]]; then
-        echo "  Failed to fetch '$pname'." >&2
-        return
-    fi
-
-    videos=$(jq '[.entries[]? | {
-        id: (.id // ""),
-        title: (.title // "Unknown"),
-        channel: (.channel // .uploader // "Unknown"),
-        duration: (.duration // 0),
-        view_count: (.view_count // 0),
-        url: ("https://youtu.be/" + (.id // ""))
-    }]' <<< "$json")
-
-    new_ids=$(jq -r '.[].id' <<< "$videos" | sort)
-    added=$(comm -13 <(echo "$old_ids") <(echo "$new_ids") | grep -c .)
-
-    jq --argjson videos "$videos" --arg updated "$(date -Iseconds)" \
-        '.videos = $videos | .updated_at = $updated' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
-
-    if [[ "$added" -gt 0 ]]; then
-        echo "  $pname: +${added} new video(s)" >&2
-    else
-        echo "  $pname: up to date" >&2
-    fi
-}
-
-# ---------------------------------------------------------------------------
-# action_sync: yt --sync [NAME]
-# ---------------------------------------------------------------------------
-action_sync() {
-    local name="$1"
-    local files
-
-    if [[ -n "$name" ]]; then
-        local f
-        f=$(find_playlist_file_by_name "$name") || {
-            echo "No saved playlist matching '$name'." >&2
-            exit 1
         }
-        files="$f"
-    else
-        files=$(list_saved_playlist_files)
+        
+        local title channel views duration upload_date
+        title=$(jq -r '.title // "Unknown"' <<< "$detail")
+        channel=$(jq -r '.channel // .uploader // "Unknown"' <<< "$detail")
+        views=$(jq -r '.view_count // 0' <<< "$detail")
+        duration=$(jq -r '.duration // 0' <<< "$detail")
+        upload_date=$(jq -r '.upload_date // empty' <<< "$detail")
+        
+        show_video_metadata "$title" "$channel" "$views" "$upload_date" "$duration"
     fi
-
-    if [[ -z "$files" ]]; then
-        echo "No saved playlists to sync." >&2
-        exit 0
-    fi
-
-    local f2
-    while read -r f2; do
-        [[ -z "$f2" ]] && continue
-        sync_one_playlist "$f2"
-    done <<< "$files"
+    
+    play_video "https://youtu.be/$id" "$QUALITY" "$AUDIO_ONLY" "$LOOP_MODE"
 }
 
-# ---------------------------------------------------------------------------
-# action_queue: yt --queue NameA,NameB,... - play several saved playlists
-# back to back in a single mpv session (each still expands to its full
-# list). Now shares build_mpv_args with everything else, so it picks up
-# the same hardware tuning and honors -loop (loops the whole queue).
-# ---------------------------------------------------------------------------
-action_queue() {
-    local raw="$1"
-    if [[ -z "$raw" ]]; then
-        echo "Usage: yt --queue NameA,NameB,..." >&2
-        exit 1
+# Handle direct video/URL/search input
+action_play_video_or_search() {
+    [[ -z "$QUERY" ]] && { show_usage; exit 1; }
+    
+    if is_playlist "$QUERY"; then
+        browse_adhoc_playlist "$QUERY"
+    elif is_http_url "$QUERY"; then
+        play_video "$QUERY" "$QUALITY" "$AUDIO_ONLY" "$LOOP_MODE"
+    elif is_video_id "$QUERY"; then
+        play_video "https://youtu.be/$QUERY" "$QUALITY" "$AUDIO_ONLY" "$LOOP_MODE"
+    else
+        local vid
+        vid=$(search_youtube "$QUERY") || return 1
+        play_video "https://youtu.be/$vid" "$QUALITY" "$AUDIO_ONLY" "$LOOP_MODE"
     fi
+}
 
+# Handle --save-playlist
+action_save_playlist() {
+    [[ -z "$QUERY" ]] && die "Usage: yt --save-playlist <playlist URL or ID>"
+    save_playlist "$QUERY"
+}
+
+# Handle --playlists / --library
+action_library_browse() {
+    local file
+    file=$(library_browse) || return 0  # User cancelled
+    browse_saved_playlist "$file"
+}
+
+# Handle --study
+action_study() {
+    if [[ -z "$QUERY" ]]; then
+        # No name provided, show library browser in study mode
+        local file
+        file=$(library_browse) || return 0
+        resume_saved_playlist "$file"
+    else
+        # Name provided, resume directly
+        local file
+        file=$(find_playlist_by_name "$QUERY") || {
+            die "No saved playlist matching: $QUERY"
+        }
+        resume_saved_playlist "$file"
+    fi
+}
+
+# Handle --sync
+action_sync() {
+    sync_all_playlists "$QUERY"
+}
+
+# Handle --shuffle
+action_shuffle() {
+    [[ -z "$QUERY" ]] && die "Usage: yt --shuffle <playlist name>"
+    
+    local file
+    file=$(find_playlist_by_name "$QUERY") || {
+        die "No saved playlist matching: $QUERY"
+    }
+    
+    shuffle_saved_playlist "$file"
+}
+
+# Handle --queue
+action_queue() {
+    [[ -z "$QUERY" ]] && die "Usage: yt --queue NameA,NameB,..."
+    
     local -a names urls
-    IFS=',' read -ra names <<< "$raw"
-
-    local n trimmed f
-    for n in "${names[@]}"; do
-        trimmed=$(echo "$n" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')
-        f=$(find_playlist_file_by_name "$trimmed") || {
-            echo "Skipping unknown playlist: $trimmed" >&2
+    IFS=',' read -ra names <<< "$QUERY" || die "Failed to parse playlist names"
+    
+    local name trimmed file url
+    for name in "${names[@]}"; do
+        trimmed=$(trim "$name") || true
+        file=$(find_playlist_by_name "$trimmed") || {
+            log_warn "Skipping unknown playlist: $trimmed"
             continue
         }
-        urls+=("$(jq -r '.source_url' "$f")")
+        url=$(jq -r '.source_url' "$file") || continue
+        urls+=("$url")
     done
-
+    
     if [[ ${#urls[@]} -eq 0 ]]; then
-        echo "No valid playlists found to queue." >&2
-        exit 1
+        die "No valid playlists found to queue"
     fi
+    
+    log_info "Queuing: ${names[*]}"
+    play_queue "$QUALITY" "$AUDIO_ONLY" "$LOOP_MODE" "${urls[@]}"
+}
 
-    echo "Queuing: ${names[*]}" >&2
-    build_mpv_args
-    [[ $LOOP_MODE -eq 1 ]] && MPV_ARGS+=(--loop-playlist=inf)
-    mpv "${MPV_ARGS[@]}" "${urls[@]}"
+# Handle --clean
+action_clean_all() {
+    clean_all_cache
 }
 
 # ---------------------------------------------------------------------------
-# main
+# Cleanup on Exit
 # ---------------------------------------------------------------------------
+
+# Clean up when script exits (normally, error, or Ctrl-C)
+on_exit() {
+    local exit_code=$?
+    cleanup_session
+    exit "$exit_code"
+}
+
+# ---------------------------------------------------------------------------
+# Main Entry Point
+# ---------------------------------------------------------------------------
+
 main() {
-    check_deps
-    init_dirs
-
-    # Run housekeeping automatically at the end of every session, no matter
-    # how it exits (normal exit, error, or Ctrl-C).
-    trap cleanup_session EXIT
-
+    # Verify dependencies before doing anything
+    verify_dependencies || die "Dependency check failed. Install required tools and try again."
+    
+    # Initialize directories
+    init_xdg_dirs || die "Failed to initialize data directories"
+    
+    # Export config for child processes
+    export_mpv_config
+    
+    # Parse command-line arguments
     parse_flags "$@"
-
-    if [[ $AUDIO_ONLY -eq 1 ]]; then
-        FORMAT="bestaudio"
-    else
-        FORMAT="bestvideo[height<=${QUALITY}][vcodec^=avc1]+bestaudio/best[height<=${QUALITY}]"
-    fi
-
-    # Library / playlist management / maintenance actions short-circuit
-    # everything else.
+    
+    # Dispatch to appropriate action handler
     case "$ACTION" in
-        save_playlist)    save_playlist "$QUERY"; exit 0 ;;
-        library)          library_browse "browse"; exit 0 ;;
-        study)            action_study "$QUERY"; exit 0 ;;
-        sync)             action_sync "$QUERY"; exit 0 ;;
-        shuffle_playlist) action_shuffle_playlist "$QUERY"; exit 0 ;;
-        queue)            action_queue "$QUERY"; exit 0 ;;
-        clean_cache)      action_clean_cache; exit 0 ;;
+        save_playlist)    action_save_playlist ;;
+        library)          action_library_browse ;;
+        study)            action_study ;;
+        sync)             action_sync ;;
+        shuffle_playlist) action_shuffle ;;
+        queue)            action_queue ;;
+        clean_cache)      action_clean_all ;;
+        *)
+            # No action flag: check for interactive search or direct play
+            if [[ $LIST_MODE -eq 1 ]]; then
+                action_interactive_search
+            else
+                action_play_video_or_search
+            fi
+            ;;
     esac
-
-    if [[ -z "$QUERY" ]]; then
-        usage
-        exit 1
-    fi
-
-    # Interactive search modes
-    if [[ $LIST_MODE -eq 1 ]]; then
-        if [[ $DETAILED_MODE -eq 1 ]]; then
-            interactive_search_detailed "$QUERY"
-        else
-            interactive_search "$QUERY"
-        fi
-        exit 0
-    fi
-
-    # Playlist URL or bare playlist ID (not yet saved to the library)
-    if is_playlist "$QUERY"; then
-        handle_adhoc_playlist "$QUERY"
-
-    # Full URL
-    elif [[ "$QUERY" =~ ^https?:// ]]; then
-        play "$QUERY"
-
-    # YouTube Video ID
-    elif [[ "$QUERY" =~ ^[A-Za-z0-9_-]{11}$ ]]; then
-        play "https://youtu.be/$QUERY"
-
-    # Search
-    else
-        search_first "$QUERY"
-    fi
 }
 
+# Set up cleanup trap
+trap on_exit EXIT
+
+# Run main program
 main "$@"
