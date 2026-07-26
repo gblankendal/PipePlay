@@ -92,6 +92,74 @@ on-demand clean (e.g. you're about to run out of disk right now), use
 
 ---
 
+## Project Structure & Architecture
+
+As of the latest refactoring, PipePlay has been reorganized from a single large script into a modular, maintainable codebase that follows modern Bash best practices.
+
+### File Organization
+
+```
+PipePlay/
+├── yt                           Main executable (entry point)
+├── lib/                         Library modules with specific responsibilities
+│   ├── logging.sh              Centralized logging (log_info, log_warn, die, etc.)
+│   ├── config.sh               Configuration, constants, hardware tuning
+│   ├── dependencies.sh         Dependency checking and validation
+│   ├── utils.sh                String formatting, utility functions
+│   ├── ui.sh                   User interface (fzf pickers, display functions)
+│   ├── search.sh               YouTube search and metadata fetching
+│   ├── player.sh               mpv playback control
+│   ├── playlists.sh            Playlist management (save, sync, browse)
+│   └── cache.sh                Cache and cleanup operations
+├── README.md                    Documentation (this file)
+└── LICENSE                      MIT License
+```
+
+### Code Quality & Best Practices
+
+The refactored code implements:
+
+- **Strict mode**: `set -Eeuo pipefail` prevents silent failures and unset variable errors
+- **Modular design**: Each module has a single, clear responsibility
+- **Error handling**: Intentional handling of expected failures (network issues, user cancellation, missing files)
+- **Centralized logging**: Consistent, formatted output via `log_info()`, `log_warn()`, `log_error()`, `die()`
+- **Variable safety**: Proper quoting (`"$var"` not `$var`) to prevent word splitting
+- **Shell compliance**: Passes ShellCheck validation (`.shellcheckrc` can customize this)
+- **Backward compatibility**: 100% user-facing compatibility with the original script
+- **Performance**: No overhead added; lightweight for older hardware
+
+### Module Responsibilities
+
+- **logging.sh**: Provides `log_info()`, `log_warn()`, `log_error()`, `die()`, and colored terminal output
+- **config.sh**: Hardware tuning (QUALITY, HWDEC, VO_CHAIN, CPU_THREADS), paths (XDG_DATA_HOME), and performance parameters
+- **dependencies.sh**: `verify_dependencies()` checks for required tools (mpv, yt-dlp, jq, fzf)
+- **utils.sh**: Formatting (`format_views()`, `format_duration()`), slugify, temporary file handling
+- **ui.sh**: `fzf_select_id()` search picker, `get_playlist_action()` menu, `library_browse()` UI
+- **search.sh**: `search_youtube()`, `fetch_video_metadata()`, `resolve_video_input()`
+- **player.sh**: `build_mpv_args()`, `play_video()`, `play_playlist()`, `play_queue()`
+- **playlists.sh**: `save_playlist()`, `find_playlist_by_name()`, `sync_saved_playlist()`, `browse_adhoc_playlist()`
+- **cache.sh**: `cleanup_session()`, `clean_all_cache()`, automatic pruning on exit
+
+### Adding New Features
+
+To add a new feature:
+
+1. Identify which module it belongs in (or create a new one if it's a distinct responsibility)
+2. Add the function to that module
+3. Export it via the module or call it from the main `yt` script
+4. Ensure it follows the existing patterns (error handling, logging, variable safety)
+5. Run `shellcheck yt lib/*.sh` to validate
+
+### Extending the Codebase
+
+The modular structure makes it easy to:
+- Add new playback options without touching search logic
+- Change UI behavior without affecting cache management
+- Reuse modules in other scripts (e.g., just source `lib/logging.sh` in another project)
+- Unit test individual functions (each module is a self-contained unit)
+
+---
+
 ## Installation (MX Linux / Debian / Ubuntu)
 
 ### 1. Install the dependencies
