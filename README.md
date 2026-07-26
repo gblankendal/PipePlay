@@ -160,30 +160,53 @@ The modular structure makes it easy to:
 
 ---
 
-## Installation (MX Linux / Debian / Ubuntu)
+## Installation & Setup
 
-### 1. Install the dependencies
+### Complete Installation Guide (Linux: Ubuntu, Debian, MX Linux, etc.)
+
+#### Step 1: Clone the Repository
+
+First, download PipePlay from GitHub to your machine:
 
 ```bash
+cd ~
+git clone https://github.com/nvsupr/PipePlay.git
+cd PipePlay
+```
+
+This creates a `PipePlay` directory with all the files you need.
+
+#### Step 2: Install Required Dependencies
+
+PipePlay requires 4 tools to function. Install them via your package manager:
+
+```bash
+# Update your package lists first
 sudo apt update
+
+# Install the required tools
 sudo apt install mpv jq fzf
 ```
 
-`yt-dlp` moves fast, so it's best installed via `pip` rather than the
-(often outdated) apt package, so you can update it easily whenever
-YouTube changes something:
+For **yt-dlp**, use `pipx` for easier updates (YouTube changes often):
 
 ```bash
+# Install pipx if you don't have it
 sudo apt install pipx
+
+# Install yt-dlp via pipx
 pipx install yt-dlp
+
+# Ensure pipx bin directory is on PATH
 pipx ensurepath
 ```
 
-If `pipx` isn't available on your system, `pip install --user yt-dlp`
-works too — just make sure `~/.local/bin` is on your `$PATH`.
+If `pipx` isn't available, use pip instead:
+```bash
+pip install --user yt-dlp
+```
 
-Verify everything is installed:
-
+**Verify all tools are installed:**
 ```bash
 mpv --version
 yt-dlp --version
@@ -191,37 +214,239 @@ jq --version
 fzf --version
 ```
 
-### 2. Get the script onto your machine
+You should see version numbers for all four. If any are missing, the script will tell you during setup.
 
-Save the script as `yt` (no extension), then make it executable and
-put it somewhere on your `$PATH`:
+---
+
+#### Step 3: Install PipePlay into Your System
+
+Copy the `yt` script and library files to your local `~/bin` directory so you can run `yt` from anywhere:
 
 ```bash
+# Create ~/bin if it doesn't exist
 mkdir -p ~/bin
-mv yt ~/bin/yt
+
+# Copy the main script to ~/bin
+cp ~/PipePlay/yt ~/bin/yt
+
+# Copy the library modules to ~/bin
+cp -r ~/PipePlay/lib ~/bin/
+
+# Make the main script executable
 chmod +x ~/bin/yt
 ```
 
-Make sure `~/bin` is on your `$PATH`. Add this to `~/.bashrc` (or
-`~/.profile`) if it isn't already:
+**Verify the copy:**
+```bash
+ls -la ~/bin/yt
+ls -la ~/bin/lib/
+```
 
+You should see the `yt` file and a `lib/` directory with 9 `.sh` files inside.
+
+---
+
+#### Step 4: Add `~/bin` to Your PATH
+
+For the `yt` command to work from anywhere in your terminal, `~/bin` must be on your system `$PATH`.
+
+**Check if it's already there:**
+```bash
+echo $PATH | grep -q "$HOME/bin" && echo "Already in PATH" || echo "NOT in PATH"
+```
+
+**If it's NOT in PATH, add it:**
+
+Open your shell configuration file:
+```bash
+# For bash
+nano ~/.bashrc
+
+# For zsh
+nano ~/.zshrc
+```
+
+Find the `export PATH=` line (or create one if it doesn't exist) and add:
 ```bash
 export PATH="$HOME/bin:$PATH"
 ```
 
-Then reload your shell:
+Save and exit (`Ctrl+X`, then `Y`, then `Enter` in nano).
 
+**Reload your shell configuration:**
 ```bash
+# For bash
 source ~/.bashrc
+
+# For zsh
+source ~/.zshrc
+
+# Or just start a new terminal
+exec bash
 ```
 
-### 3. Test it
+**Verify `~/bin` is on PATH:**
+```bash
+echo $PATH
+```
+
+You should see `/home/YOUR_USERNAME/bin` in the output.
+
+---
+
+#### Step 5: Verify Everything Works
+
+Test the installation:
+
+```bash
+yt --help
+```
+
+You should see usage information. If you get "command not found", make sure `~/bin/yt` is executable and `~/bin` is on your `$PATH`.
+
+Now try playing something:
 
 ```bash
 yt never gonna give you up
 ```
 
-If a video starts playing in `mpv`, you're done.
+A video player (`mpv`) should open and start playing the song. If it does, **congratulations — you're set up!**
+
+---
+
+### Using PipePlay from a Local Directory
+
+If you already have PipePlay downloaded locally (e.g., at `/home/ryan/.local/bin/PipePlay/`), you have two simple methods to use it:
+
+#### Method 1: Direct Path (Fastest)
+
+Run the script directly using its full path:
+
+```bash
+/home/ryan/.local/bin/PipePlay/yt "never gonna give you up"
+```
+
+For easier access, create an alias in your `~/.bashrc`:
+
+```bash
+echo 'alias yt="/home/ryan/.local/bin/PipePlay/yt"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+Then just type:
+```bash
+yt "search terms"
+```
+
+**Advantages:**
+- ✅ Works immediately, no setup needed
+- ✅ Simple and quick for testing
+
+---
+
+#### Method 2: Symlink + PATH (Recommended)
+
+Create a symbolic link so the script feels like a system command:
+
+```bash
+# Create ~/bin if it doesn't exist
+mkdir -p ~/bin
+
+# Create symlink (replace path with your actual location)
+ln -s /home/ryan/.local/bin/PipePlay/yt ~/bin/yt
+
+# Add ~/bin to PATH
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+Then just type:
+```bash
+yt "search terms"
+```
+
+**Advantages:**
+- ✅ Symlink updates automatically if you update PipePlay
+- ✅ Clean: keeps only the symlink in `~/bin`
+- ✅ Original PipePlay stays in its original location
+- ✅ Works like any other system command
+
+**Note:** Replace `/home/ryan/.local/bin/PipePlay/` with your actual PipePlay location.
+
+---
+
+### Automatic Setup (Optional)
+
+If you prefer, you can run the installation commands all at once:
+
+```bash
+# Clone
+cd ~ && git clone https://github.com/nvsupr/PipePlay.git && cd PipePlay
+
+# Install dependencies
+sudo apt update && sudo apt install mpv jq fzf
+sudo apt install pipx && pipx install yt-dlp && pipx ensurepath
+
+# Install to ~/bin
+mkdir -p ~/bin && cp yt ~/bin/yt && cp -r lib ~/bin/ && chmod +x ~/bin/yt
+
+# Add to PATH (if not already there)
+grep -q "~/bin" ~/.bashrc || echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+# Test
+yt --help
+```
+
+---
+
+### Troubleshooting
+
+**"command not found: yt"**
+- Make sure `~/bin` is on your `$PATH`: `echo $PATH | grep bin`
+- Verify the file exists and is executable: `ls -la ~/bin/yt`
+- Try: `~/bin/yt --help` (using full path)
+- Restart your terminal or run: `source ~/.bashrc`
+
+**"command not found: mpv / yt-dlp / jq / fzf"**
+- Install missing tool: `sudo apt install [tool-name]`
+- For yt-dlp: `pipx install yt-dlp`
+- Verify: `[tool-name] --version`
+
+**Library files not found (errors about lib/logging.sh)**
+- Make sure you copied the `lib/` directory: `ls -la ~/bin/lib/`
+- If missing, copy it: `cp -r ~/PipePlay/lib ~/bin/`
+- Check that `~/bin/yt` can see it: verify the path in the script
+
+**Video won't play**
+- Check internet connection: `ping youtube.com`
+- Try a different video: `yt "hello world"`
+- Try with a direct URL: `yt "https://youtu.be/VIDEOID"`
+- Clear cache if needed: `yt --clean`
+
+**Performance issues on old hardware**
+- Use quality flags: `yt -480 search terms` (480p instead of 720p default)
+- Try audio-only: `yt -a podcast_name`
+- See `lib/config.sh` for tuning options
+
+---
+
+### Upgrading PipePlay
+
+To get the latest version:
+
+```bash
+cd ~/PipePlay
+git pull origin main
+cp yt ~/bin/yt
+cp -r lib ~/bin/
+```
+
+Or reinstall yt-dlp for YouTube compatibility fixes:
+
+```bash
+pipx upgrade yt-dlp
+```
 
 ---
 
