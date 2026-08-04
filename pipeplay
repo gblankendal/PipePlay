@@ -1,23 +1,26 @@
 #!/usr/bin/env bash
 #
-# yt - A fast, keyboard-driven YouTube CLI player built on mpv + yt-dlp + fzf.
+# pipeplay - A fast, keyboard-driven YouTube CLI player built on mpv + yt-dlp + fzf.
 #
 # Usage:
-#   yt VIDEO_ID
-#   yt URL
-#   yt search terms
-#   yt                            (start a blank search prompt)
-#   yt -l search terms            (interactive fzf search)
-#   yt -L search terms            (interactive fzf search + detailed metadata)
+#   pipeplay VIDEO_ID
+#   pipeplay URL
+#   pipeplay search terms
+#   pipeplay                      (start a blank search prompt)
+#   pipeplay -l search terms      (interactive fzf search)
+#   pipeplay -L search terms      (interactive fzf search + detailed metadata)
 #
-#   yt URL_OR_ID_OF_PLAYLIST      (browse/play a playlist, not saved)
-#   yt --save-playlist URL        (save a playlist into your local library)
-#   yt --playlists | --library    (browse saved playlists)
-#   yt --study [NAME]             (resume a saved playlist where you left off)
-#   yt --sync [NAME]              (refetch saved playlist(s), report new videos)
-#   yt --shuffle NAME             (play a saved playlist shuffled)
-#   yt --queue NameA,NameB,...    (play several saved playlists back to back)
-#   yt --clean                    (manually deep-clean cache + all resume data)
+#   pipeplay URL_OR_ID_OF_PLAYLIST (browse/play a playlist, not saved)
+#   pipeplay --save-playlist URL  (save a playlist into your local library)
+#   pipeplay --playlists | --library (browse saved playlists)
+#   pipeplay --study [NAME]       (resume a saved playlist where you left off)
+#   pipeplay --sync [NAME]        (refetch saved playlist(s), report new videos)
+#   pipeplay --shuffle NAME       (play a saved playlist shuffled)
+#   pipeplay --queue NameA,NameB,... (play several saved playlists back to back)
+#   pipeplay --clean              (manually deep-clean cache + all resume data)
+#
+# Aliases:
+#   pplay, ppy                   Invoke the same executable as pipeplay
 #
 # Options (can appear anywhere on the command line, not just before terms):
 #   -480 / -720 / -1080     Max playback resolution (default 720)
@@ -228,7 +231,7 @@ action_play_video_or_search() {
 
 # Handle --save-playlist
 action_save_playlist() {
-    [[ -z "$QUERY" ]] && die "Usage: yt --save-playlist <playlist URL or ID>"
+    [[ -z "$QUERY" ]] && die "Usage: pipeplay --save-playlist <playlist URL or ID>"
     save_playlist "$QUERY"
 }
 
@@ -263,7 +266,7 @@ action_sync() {
 
 # Handle --shuffle
 action_shuffle() {
-    [[ -z "$QUERY" ]] && die "Usage: yt --shuffle <playlist name>"
+    [[ -z "$QUERY" ]] && die "Usage: pipeplay --shuffle <playlist name>"
     
     local file
     file=$(find_playlist_by_name "$QUERY") || {
@@ -275,7 +278,7 @@ action_shuffle() {
 
 # Handle --queue
 action_queue() {
-    [[ -z "$QUERY" ]] && die "Usage: yt --queue NameA,NameB,..."
+    [[ -z "$QUERY" ]] && die "Usage: pipeplay --queue NameA,NameB,..."
     
     local -a names urls
     IFS=',' read -ra names <<< "$QUERY" || die "Failed to parse playlist names"
