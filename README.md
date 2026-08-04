@@ -90,11 +90,11 @@ on-demand clean, use `yt --clean`.
 
 ### Required tools
 
-Install these first:
+Install the basics first:
 
 ```bash
 sudo apt update
-sudo apt install mpv jq fzf
+sudo apt install git mpv jq fzf
 ```
 
 For `yt-dlp`, install via `pipx` if possible:
@@ -111,15 +111,34 @@ If `pipx` is not available, use:
 pip install --user yt-dlp
 ```
 
-### Install PipePlay
+### Install PipePlay with git
 
-Copy `yt` and `lib/` into `~/bin` so the command works anywhere:
+Clone the repository into a folder under your home directory. This keeps the
+project in one place and makes it easy to update later:
+
+```bash
+mkdir -p "$HOME/src"
+git clone https://github.com/nvsupr/PipePlay.git "$HOME/src/PipePlay"
+```
+
+That command creates a full local copy of the repo at:
+
+```bash
+~/src/PipePlay
+```
+
+Inside that folder you'll find:
+
+- `~/src/PipePlay/yt` — the main script
+- `~/src/PipePlay/lib/` — the supporting shell modules
+
+Make the launcher executable and add a small command shim in `~/bin` so you
+can run `yt` from anywhere:
 
 ```bash
 mkdir -p "$HOME/bin"
-cp yt "$HOME/bin/yt"
-cp -r lib "$HOME/bin/"
-chmod +x "$HOME/bin/yt"
+chmod +x "$HOME/src/PipePlay/yt"
+ln -sf "$HOME/src/PipePlay/yt" "$HOME/bin/yt"
 ```
 
 Make sure `~/bin` is on your PATH. If not, add this to `~/.bashrc` or
@@ -133,6 +152,13 @@ Then reload your shell:
 
 ```bash
 source ~/.bashrc
+```
+
+If you ever want to update PipePlay later, run:
+
+```bash
+cd "$HOME/src/PipePlay"
+git pull
 ```
 
 ### Verify installation
