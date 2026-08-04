@@ -42,6 +42,10 @@ the bottom. No pressure at all — sharing this is enough.
 
 ---
 
+**Disclaimer**: PipePlay is an independent open-source project and is not affiliated with or endorsed by YouTube or Google. Users are responsible for complying with the terms of service and applicable copyright laws for the content they access.
+
+---
+
 ## How it works
 
 Four tools, each doing one job:
@@ -82,7 +86,7 @@ itself every time it exits — normal exit, error, or Ctrl-C:
 - Old mpv resume points are pruned after 45 days.
 
 Saved playlists are never deleted automatically. If you want a stronger,
-on-demand clean, use `yt --clean`.
+on-demand clean, use `pipeplay --clean`.
 
 ---
 
@@ -129,16 +133,18 @@ That command creates a full local copy of the repo at:
 
 Inside that folder you'll find:
 
-- `~/src/PipePlay/yt` — the main script
+- `~/src/PipePlay/pipeplay` — the main script
 - `~/src/PipePlay/lib/` — the supporting shell modules
 
-Make the launcher executable and add a small command shim in `~/bin` so you
-can run `yt` from anywhere:
+Make the launcher executable and add command shims in `~/bin` so you can run
+`pipeplay`, `pplay`, and `ppy` from anywhere:
 
 ```bash
 mkdir -p "$HOME/bin"
-chmod +x "$HOME/src/PipePlay/yt"
-ln -sf "$HOME/src/PipePlay/yt" "$HOME/bin/yt"
+chmod +x "$HOME/src/PipePlay/pipeplay"
+ln -sf "$HOME/src/PipePlay/pipeplay" "$HOME/bin/pipeplay"
+ln -sf "$HOME/src/PipePlay/pipeplay" "$HOME/bin/pplay"
+ln -sf "$HOME/src/PipePlay/pipeplay" "$HOME/bin/ppy"
 ```
 
 Make sure `~/bin` is on your PATH. If not, add this to `~/.bashrc` or
@@ -164,7 +170,7 @@ git pull
 ### Verify installation
 
 ```bash
-yt --help
+pipeplay --help
 mpv --version
 yt-dlp --version
 jq --version
@@ -176,25 +182,25 @@ fzf --version
 ## Usage
 
 ```bash
-yt never gonna give you up
-yt https://youtu.be/dQw4w9WgXcQ
-yt -l never gonna give you up
-yt -L never gonna give you up
-yt
-yt --search
-yt --block-60fps never gonna give you up
-yt --max-fps 30 never gonna give you up
-yt --save-playlist https://www.youtube.com/playlist?list=... 
-yt --playlists
-yt --study MyPlaylist
-yt --sync MyPlaylist
-yt --shuffle MyPlaylist
-yt --queue PlaylistA,PlaylistB
-yt --clean
-yt --help
+ppy never gonna give you up
+ppy https://youtu.be/dQw4w9WgXcQ
+ppy -l never gonna give you up
+ppy -L never gonna give you up
+ppy --search
+ppy --block-60fps never gonna give you up
+ppy --max-fps 30 never gonna give you up
+ppy --save-playlist https://www.youtube.com/playlist?list=...
+ppy --playlists
+ppy --study MyPlaylist
+ppy --sync MyPlaylist
+ppy --shuffle MyPlaylist
+ppy --queue PlaylistA,PlaylistB
+ppy --clean
+ppy --help
 ```
 
-Running `yt` with no query starts a blank search prompt, which is handy if you
+`pplay` and `pipeplay` are supported aliases for the same CLI and behave identically.
+Running `pipeplay` with no query starts a blank search prompt, which is handy if you
 launch it from a desktop entry or just want to type a search term interactively.
 
 ## Config
@@ -216,7 +222,7 @@ MAX_FPS=30
 
 ## Help
 
-Run `yt --help` or `yt -h` for usage information.
+Run `pipeplay --help` or `pipeplay -h` for usage information.
 
 ---
 

@@ -33,7 +33,7 @@ cleanup_session() {
     fi
 }
 
-# Aggressive on-demand cleanup (user ran `yt --clean`)
+# Aggressive on-demand cleanup (user ran `pipeplay --clean`)
 # Wipes ALL resume points, not just stale ones
 # Saved playlists are NEVER touched
 clean_all_cache() {

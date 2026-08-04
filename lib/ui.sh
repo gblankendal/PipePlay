@@ -13,24 +13,24 @@
 show_usage() {
     cat <<'EOF'
 Usage:
-  yt VIDEO_ID
-  yt URL
-  yt search terms
-  yt                    Start a blank search prompt
-  yt -l search terms
-  yt -L search terms
+  pipeplay VIDEO_ID
+  pipeplay URL
+  pipeplay search terms
+  pipeplay                 Start a blank search prompt
+  pipeplay -l search terms
+  pipeplay -L search terms
 
 Playlists & Library:
-  yt PLAYLIST_URL_OR_ID          Browse/play a playlist (not saved)
-  yt --save-playlist URL         Save a playlist into your local library
-  yt --playlists, --library      Browse your saved playlists
-  yt --study [NAME]              Resume a saved playlist where you left off
-  yt --sync [NAME]               Refetch saved playlist(s), report new videos
-  yt --shuffle NAME              Play a saved playlist in shuffled order
-  yt --queue NameA,NameB,...     Play several saved playlists back to back
+  pipeplay PLAYLIST_URL_OR_ID   Browse/play a playlist (not saved)
+  pipeplay --save-playlist URL  Save a playlist into your local library
+  pipeplay --playlists, --library Browse your saved playlists
+  pipeplay --study [NAME]       Resume a saved playlist where you left off
+  pipeplay --sync [NAME]        Refetch saved playlist(s), report new videos
+  pipeplay --shuffle NAME       Play a saved playlist in shuffled order
+  pipeplay --queue NameA,NameB,... Play several saved playlists back to back
 
 Maintenance:
-  yt --clean                     Deep-clean cache + ALL resume points now
+  pipeplay --clean              Deep-clean cache + ALL resume points now
                                  (playlists are auto-cleaned conservatively
                                  after every run; this is the manual, more
                                  aggressive version)
@@ -124,7 +124,7 @@ fzf_select_id() {
     selected=$(printf '%s' "$fzf_input" | fzf \
         --delimiter=$'\t' \
         --with-nth=2 \
-        --prompt="yt search> " \
+        --prompt="pipeplay search> " \
         --height="$FZF_HEIGHT" \
         --border \
         --header="$header" \
@@ -280,7 +280,7 @@ library_browse() {
     }
 
     if [[ -z "$files" ]]; then
-        log_info "No saved playlists yet. Try: yt --save-playlist <url>"
+        log_info "No saved playlists yet. Try: pipeplay --save-playlist <url>"
         return 1
     fi
 
