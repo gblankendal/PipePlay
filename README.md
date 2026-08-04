@@ -2,7 +2,7 @@
 
 A single bash script that turns `mpv` + `yt-dlp` + `fzf` into a fast,
 no-browser way to search, watch, and organize YouTube videos and
-playlists from the terminal. No ads, no recommendation rabbit-hole,
+playlists from the terminal. No recommendation rabbit-hole,
 no bloated web player — just you, a search term, and a video that
 starts playing in under a second.
 
