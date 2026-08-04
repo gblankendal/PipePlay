@@ -24,6 +24,10 @@
 #   -l                       Interactive search via fzf
 #   -L                       Interactive search via fzf, show details before playback
 #   -loop                    Loop the current video (or whole playlist) forever
+#   --search | -s            Open a blank search prompt and then run fzf
+#   --max-fps <n>            Limit playback to videos with <= n FPS
+#   --block-60fps            Alias for --max-fps 30
+#   -h | --help             Show this help message
 #
 
 # shellcheck disable=SC1091  # We intentionally source files; not checking them individually
@@ -41,6 +45,15 @@ readonly LIB_DIR
 source "$LIB_DIR/logging.sh" || { echo "Failed to load logging.sh" >&2; exit 1; }
 source "$LIB_DIR/utils.sh" || { die "Failed to load utils.sh"; }
 source "$LIB_DIR/dependencies.sh" || { die "Failed to load dependencies.sh"; }
+
+# Load user config before defaults so users can override settings safely.
+USER_CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/yt/config.sh"
+if [[ -f "$USER_CONFIG_FILE" ]]; then
+    log_info "Loading config: $USER_CONFIG_FILE"
+    # shellcheck disable=SC1090
+    source "$USER_CONFIG_FILE" || die "Failed to load user config"
+fi
+
 source "$LIB_DIR/config.sh" || { die "Failed to load config.sh"; }
 source "$LIB_DIR/ui.sh" || { die "Failed to load ui.sh"; }
 source "$LIB_DIR/search.sh" || { die "Failed to load search.sh"; }
@@ -114,6 +127,22 @@ parse_flags() {
             --clean | --clean-cache)
                 ACTION="clean_cache"
                 ;;
+            --search | -s)
+                LIST_MODE=1
+                ;;
+            --max-fps)
+                shift || die "Missing value for --max-fps"
+                if ! [[ "$1" =~ ^[0-9]+$ ]]; then
+                    die "Invalid value for --max-fps: $1"
+                fi
+                MAX_FPS="$1"
+                ;;
+            --block-60fps)
+                MAX_FPS=30
+                ;;
+            -h | --help)
+                ACTION="help"
+                ;;
             -*)
                 die "Unknown option: $1"
                 ;;
@@ -131,10 +160,20 @@ parse_flags() {
 # Action Handlers
 # ---------------------------------------------------------------------------
 
+# Prompt the user for a search query when none was provided
+prompt_search_query() {
+    read -r -p "Search query: " QUERY
+    QUERY="$(trim "$QUERY")"
+    if [[ -z "$QUERY" ]]; then
+        return 1
+    fi
+    return 0
+}
+
 # Handle interactive search mode (-l or -L)
 action_interactive_search() {
     if [[ -z "$QUERY" ]]; then
-        die "Search query required"
+        prompt_search_query || return 0
     fi
     
     local id
@@ -273,7 +312,15 @@ on_exit() {
 # ---------------------------------------------------------------------------
 
 main() {
-    # Verify dependencies before doing anything
+    # Parse command-line arguments first so help works without installed dependencies
+    parse_flags "$@"
+
+    if [[ "$ACTION" == "help" ]]; then
+        show_usage
+        exit 0
+    fi
+
+    # Verify dependencies before doing anything else
     verify_dependencies || die "Dependency check failed. Install required tools and try again."
     
     # Initialize directories
@@ -281,9 +328,6 @@ main() {
     
     # Export config for child processes
     export_mpv_config
-    
-    # Parse command-line arguments
-    parse_flags "$@"
     
     # Dispatch to appropriate action handler
     case "$ACTION" in

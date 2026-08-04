@@ -19,11 +19,11 @@ would chug, autoplay previews would eat what little CPU I had, and
 actual video playback dropped frames constantly. My parents couldn't
 afford to get me a new laptop, and honestly, I understood — but I
 still wanted to watch and study from YouTube without wanting to throw
-the machine out the window.
+my machine out the window.
 
-Out of frustration I started looking into lighter alternatives, which
-is what pushed me into installing Linux in the first place — I'm on
-**MX Linux (Xfce edition)** now, running Debian 13 (Trixie) under the
+Out of frustration I started looking into lighter alternatives,
+which is what pushed me into installing Linux in the first place — I'm
+on **MX Linux (Xfce edition)** now, running Debian 13 (Trixie) under the
 hood. That switch alone made the machine feel usable again. But the
 browser was still the bottleneck for YouTube specifically, so I built
 this script around `mpv` (a lightweight native video player) and
@@ -42,32 +42,30 @@ the bottom. No pressure at all — sharing this is enough.
 
 ---
 
-## How it actually works
+## How it works
 
 Four tools, each doing one job:
 
-| Tool     | Job                                                                 |
-|----------|----------------------------------------------------------------------|
+| Tool     | Job |
+|----------|-----|
 | `yt-dlp` | Talks to YouTube. Resolves search terms, video IDs, and playlist URLs into real stream URLs and metadata (title, channel, views, duration) — without ever loading a browser page. |
-| `mpv`    | Actually plays the video/audio stream that `yt-dlp` hands it. This is the only part doing real decoding/rendering work. |
-| `fzf`    | Powers the interactive fuzzy-search pickers (`-l` / `-L` / `--playlists`) — type a few letters, arrow down, hit enter. |
-| `jq`     | Parses the JSON that `yt-dlp` returns (titles, view counts, IDs, etc.) so the script can format and display it. |
+| `mpv`    | Actually plays the video/audio stream that `yt-dlp` hands it. This is the only part doing real decoding and rendering work. |
+| `fzf`    | Powers the interactive selection UIs for search results and playlist browsing. |
+| `jq`     | Parses the JSON that `yt-dlp` returns so the script can format output and build playlists. |
 
-The script itself is the glue: it parses your flags, decides which of
-those four tools to call and in what order, formats the terminal
-output, and manages a small local library of saved playlists so you
-don't have to re-paste URLs every time.
+The script is the glue: it parses your flags, decides which commands to
+run, formats terminal output, and manages a small local playlist library.
 
 ### Where your data lives
 
 Everything is stored under the XDG data directory (respects
-`$XDG_DATA_HOME` if set, otherwise defaults to `~/.local/share`):
+`$XDG_DATA_HOME`, otherwise defaults to `~/.local/share`):
 
 ```
 ~/.local/share/yt/
 ├── playlists/        Saved playlists, one JSON file per playlist
-├── watch_later/       mpv's own resume data (exact video + timestamp)
-└── cache/              Scratch space, wiped automatically every run
+├── watch_later/      mpv resume data (video + timestamp)
+└── cache/            Scratch space, wiped automatically every run
 ```
 
 Nothing is ever sent anywhere except direct requests to YouTube itself
@@ -75,562 +73,120 @@ Nothing is ever sent anywhere except direct requests to YouTube itself
 
 ### Automatic cleanup
 
-Storage is precious on old/small drives, so the script cleans up after
-itself **every single time it exits** — normal exit, error, or Ctrl-C:
+Storage is precious on old or small drives, so the script cleans up after
+itself every time it exits — normal exit, error, or Ctrl-C:
 
-- `yt-dlp`'s own on-disk cache is wiped (fully disposable, it
-  regenerates itself as needed).
-- Any leftover temp files from an interrupted `--sync` are removed.
-- The script's own scratch folder is cleared.
-- Resume ("watch later") entries untouched for 45+ days are pruned,
-  since they're almost certainly abandoned.
+- `yt-dlp` cache is cleared.
+- Interrupted temporary files are removed.
+- The script scratch cache is wiped.
+- Old mpv resume points are pruned after 45 days.
 
-Your saved playlists are **never** touched by this automatic pass, and
-recent resume points are always kept. If you want a more aggressive,
-on-demand clean (e.g. you're about to run out of disk right now), use
-`yt --clean` — see the command reference below.
+Saved playlists are never deleted automatically. If you want a stronger,
+on-demand clean, use `yt --clean`.
 
 ---
 
-## Project Structure & Architecture
+## Install
 
-As of the latest refactoring, PipePlay has been reorganized from a single large script into a modular, maintainable codebase that follows modern Bash best practices.
+### Required tools
 
-### File Organization
-
-```
-PipePlay/
-├── yt                           Main executable (entry point)
-├── lib/                         Library modules with specific responsibilities
-│   ├── logging.sh              Centralized logging (log_info, log_warn, die, etc.)
-│   ├── config.sh               Configuration, constants, hardware tuning
-│   ├── dependencies.sh         Dependency checking and validation
-│   ├── utils.sh                String formatting, utility functions
-│   ├── ui.sh                   User interface (fzf pickers, display functions)
-│   ├── search.sh               YouTube search and metadata fetching
-│   ├── player.sh               mpv playback control
-│   ├── playlists.sh            Playlist management (save, sync, browse)
-│   └── cache.sh                Cache and cleanup operations
-├── README.md                    Documentation (this file)
-└── LICENSE                      MIT License
-```
-
-### Code Quality & Best Practices
-
-The refactored code implements:
-
-- **Strict mode**: `set -Eeuo pipefail` prevents silent failures and unset variable errors
-- **Modular design**: Each module has a single, clear responsibility
-- **Error handling**: Intentional handling of expected failures (network issues, user cancellation, missing files)
-- **Centralized logging**: Consistent, formatted output via `log_info()`, `log_warn()`, `log_error()`, `die()`
-- **Variable safety**: Proper quoting (`"$var"` not `$var`) to prevent word splitting
-- **Shell compliance**: Passes ShellCheck validation (`.shellcheckrc` can customize this)
-- **Backward compatibility**: 100% user-facing compatibility with the original script
-- **Performance**: No overhead added; lightweight for older hardware
-
-### Module Responsibilities
-
-- **logging.sh**: Provides `log_info()`, `log_warn()`, `log_error()`, `die()`, and colored terminal output
-- **config.sh**: Hardware tuning (QUALITY, HWDEC, VO_CHAIN, CPU_THREADS), paths (XDG_DATA_HOME), and performance parameters
-- **dependencies.sh**: `verify_dependencies()` checks for required tools (mpv, yt-dlp, jq, fzf)
-- **utils.sh**: Formatting (`format_views()`, `format_duration()`), slugify, temporary file handling
-- **ui.sh**: `fzf_select_id()` search picker, `get_playlist_action()` menu, `library_browse()` UI
-- **search.sh**: `search_youtube()`, `fetch_video_metadata()`, `resolve_video_input()`
-- **player.sh**: `build_mpv_args()`, `play_video()`, `play_playlist()`, `play_queue()`
-- **playlists.sh**: `save_playlist()`, `find_playlist_by_name()`, `sync_saved_playlist()`, `browse_adhoc_playlist()`
-- **cache.sh**: `cleanup_session()`, `clean_all_cache()`, automatic pruning on exit
-
-### Adding New Features
-
-To add a new feature:
-
-1. Identify which module it belongs in (or create a new one if it's a distinct responsibility)
-2. Add the function to that module
-3. Export it via the module or call it from the main `yt` script
-4. Ensure it follows the existing patterns (error handling, logging, variable safety)
-5. Run `shellcheck yt lib/*.sh` to validate
-
-### Extending the Codebase
-
-The modular structure makes it easy to:
-- Add new playback options without touching search logic
-- Change UI behavior without affecting cache management
-- Reuse modules in other scripts (e.g., just source `lib/logging.sh` in another project)
-- Unit test individual functions (each module is a self-contained unit)
-
----
-
-## Installation & Setup
-
-### Complete Installation Guide (Linux: Ubuntu, Debian, MX Linux, etc.)
-
-#### Step 1: Clone the Repository
-
-First, download PipePlay from GitHub to your machine:
+Install these first:
 
 ```bash
-cd ~
-git clone https://github.com/nvsupr/PipePlay.git
-cd PipePlay
-```
-
-This creates a `PipePlay` directory with all the files you need.
-
-#### Step 2: Install Required Dependencies
-
-PipePlay requires 4 tools to function. Install them via your package manager:
-
-```bash
-# Update your package lists first
 sudo apt update
-
-# Install the required tools
 sudo apt install mpv jq fzf
 ```
 
-For **yt-dlp**, use `pipx` for easier updates (YouTube changes often):
+For `yt-dlp`, install via `pipx` if possible:
 
 ```bash
-# Install pipx if you don't have it
 sudo apt install pipx
-
-# Install yt-dlp via pipx
 pipx install yt-dlp
-
-# Ensure pipx bin directory is on PATH
 pipx ensurepath
 ```
 
-If `pipx` isn't available, use pip instead:
+If `pipx` is not available, use:
+
 ```bash
 pip install --user yt-dlp
 ```
 
-**Verify all tools are installed:**
+### Install PipePlay
+
+Copy `yt` and `lib/` into `~/bin` so the command works anywhere:
+
 ```bash
+mkdir -p "$HOME/bin"
+cp yt "$HOME/bin/yt"
+cp -r lib "$HOME/bin/"
+chmod +x "$HOME/bin/yt"
+```
+
+Make sure `~/bin` is on your PATH. If not, add this to `~/.bashrc` or
+`~/.zshrc`:
+
+```bash
+export PATH="$HOME/bin:$PATH"
+```
+
+Then reload your shell:
+
+```bash
+source ~/.bashrc
+```
+
+### Verify installation
+
+```bash
+yt --help
 mpv --version
 yt-dlp --version
 jq --version
 fzf --version
 ```
 
-You should see version numbers for all four. If any are missing, the script will tell you during setup.
-
 ---
 
-#### Step 3: Install PipePlay into Your System
-
-Copy the `yt` script and library files to your local `~/bin` directory so you can run `yt` from anywhere:
-
-```bash
-# Create ~/bin if it doesn't exist
-mkdir -p ~/bin
-
-# Copy the main script to ~/bin
-cp ~/PipePlay/yt ~/bin/yt
-
-# Copy the library modules to ~/bin
-cp -r ~/PipePlay/lib ~/bin/
-
-# Make the main script executable
-chmod +x ~/bin/yt
-```
-
-**Verify the copy:**
-```bash
-ls -la ~/bin/yt
-ls -la ~/bin/lib/
-```
-
-You should see the `yt` file and a `lib/` directory with 9 `.sh` files inside.
-
----
-
-#### Step 4: Add `~/bin` to Your PATH
-
-For the `yt` command to work from anywhere in your terminal, `~/bin` must be on your system `$PATH`.
-
-**Check if it's already there:**
-```bash
-echo $PATH | grep -q "$HOME/bin" && echo "Already in PATH" || echo "NOT in PATH"
-```
-
-**If it's NOT in PATH, add it:**
-
-Open your shell configuration file:
-```bash
-# For bash
-nano ~/.bashrc
-
-# For zsh
-nano ~/.zshrc
-```
-
-Find the `export PATH=` line (or create one if it doesn't exist) and add:
-```bash
-export PATH="$HOME/bin:$PATH"
-```
-
-Save and exit (`Ctrl+X`, then `Y`, then `Enter` in nano).
-
-**Reload your shell configuration:**
-```bash
-# For bash
-source ~/.bashrc
-
-# For zsh
-source ~/.zshrc
-
-# Or just start a new terminal
-exec bash
-```
-
-**Verify `~/bin` is on PATH:**
-```bash
-echo $PATH
-```
-
-You should see `/home/YOUR_USERNAME/bin` in the output.
-
----
-
-#### Step 5: Verify Everything Works
-
-Test the installation:
-
-```bash
-yt --help
-```
-
-You should see usage information. If you get "command not found", make sure `~/bin/yt` is executable and `~/bin` is on your `$PATH`.
-
-Now try playing something:
+## Usage
 
 ```bash
 yt never gonna give you up
-```
-
-A video player (`mpv`) should open and start playing the song. If it does, **congratulations — you're set up!**
-
----
-
-### Using PipePlay from a Local Directory
-
-If you already have PipePlay downloaded locally (e.g., at `/home/ryan/.local/bin/PipePlay/`), you have two simple methods to use it:
-
-#### Method 1: Direct Path (Fastest)
-
-Run the script directly using its full path:
-
-```bash
-/home/ryan/.local/bin/PipePlay/yt "never gonna give you up"
-```
-
-For easier access, create an alias in your `~/.bashrc`:
-
-```bash
-echo 'alias yt="/home/ryan/.local/bin/PipePlay/yt"' >> ~/.bashrc
-source ~/.bashrc
-```
-
-Then just type:
-```bash
-yt "search terms"
-```
-
-**Advantages:**
-- ✅ Works immediately, no setup needed
-- ✅ Simple and quick for testing
-
----
-
-#### Method 2: Symlink + PATH (Recommended)
-
-Create a symbolic link so the script feels like a system command:
-
-```bash
-# Create ~/bin if it doesn't exist
-mkdir -p ~/bin
-
-# Create symlink (replace path with your actual location)
-ln -s /home/ryan/.local/bin/PipePlay/yt ~/bin/yt
-
-# Add ~/bin to PATH
-echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
-```
-
-Then just type:
-```bash
-yt "search terms"
-```
-
-**Advantages:**
-- ✅ Symlink updates automatically if you update PipePlay
-- ✅ Clean: keeps only the symlink in `~/bin`
-- ✅ Original PipePlay stays in its original location
-- ✅ Works like any other system command
-
-**Note:** Replace `/home/ryan/.local/bin/PipePlay/` with your actual PipePlay location.
-
----
-
-### Automatic Setup (Optional)
-
-If you prefer, you can run the installation commands all at once:
-
-```bash
-# Clone
-cd ~ && git clone https://github.com/nvsupr/PipePlay.git && cd PipePlay
-
-# Install dependencies
-sudo apt update && sudo apt install mpv jq fzf
-sudo apt install pipx && pipx install yt-dlp && pipx ensurepath
-
-# Install to ~/bin
-mkdir -p ~/bin && cp yt ~/bin/yt && cp -r lib ~/bin/ && chmod +x ~/bin/yt
-
-# Add to PATH (if not already there)
-grep -q "~/bin" ~/.bashrc || echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
-
-# Test
+yt https://youtu.be/dQw4w9WgXcQ
+yt -l never gonna give you up
+yt -L never gonna give you up
+yt --search
+yt --block-60fps never gonna give you up
+yt --max-fps 30 never gonna give you up
+yt --save-playlist https://www.youtube.com/playlist?list=... 
+yt --playlists
+yt --study MyPlaylist
+yt --sync MyPlaylist
+yt --shuffle MyPlaylist
+yt --queue PlaylistA,PlaylistB
+yt --clean
 yt --help
 ```
 
----
+## Config
 
-### Troubleshooting
-
-**"command not found: yt"**
-- Make sure `~/bin` is on your `$PATH`: `echo $PATH | grep bin`
-- Verify the file exists and is executable: `ls -la ~/bin/yt`
-- Try: `~/bin/yt --help` (using full path)
-- Restart your terminal or run: `source ~/.bashrc`
-
-**"command not found: mpv / yt-dlp / jq / fzf"**
-- Install missing tool: `sudo apt install [tool-name]`
-- For yt-dlp: `pipx install yt-dlp`
-- Verify: `[tool-name] --version`
-
-**Library files not found (errors about lib/logging.sh)**
-- Make sure you copied the `lib/` directory: `ls -la ~/bin/lib/`
-- If missing, copy it: `cp -r ~/PipePlay/lib ~/bin/`
-- Check that `~/bin/yt` can see it: verify the path in the script
-
-**Video won't play**
-- Check internet connection: `ping youtube.com`
-- Try a different video: `yt "hello world"`
-- Try with a direct URL: `yt "https://youtu.be/VIDEOID"`
-- Clear cache if needed: `yt --clean`
-
-**Performance issues on old hardware**
-- Use quality flags: `yt -480 search terms` (480p instead of 720p default)
-- Try audio-only: `yt -a podcast_name`
-- See `lib/config.sh` for tuning options
-
----
-
-### Upgrading PipePlay
-
-To get the latest version:
+Create `~/.config/yt/config.sh` to override defaults and preserve your
+settings across updates:
 
 ```bash
-cd ~/PipePlay
-git pull origin main
-cp yt ~/bin/yt
-cp -r lib ~/bin/
+DEFAULT_QUALITY=480
+HWDEC_MODE="auto"
+MAX_FPS=30
 ```
 
-Or reinstall yt-dlp for YouTube compatibility fixes:
+## Data locations
 
-```bash
-pipx upgrade yt-dlp
-```
+- `~/.local/share/yt/playlists`
+- `~/.local/share/yt/watch_later`
+- `~/.local/share/yt/cache`
 
----
+## Help
 
-## Full command reference
-
-### Just play something
-
-```bash
-yt VIDEO_ID                 # play a specific YouTube video ID
-yt "https://youtu.be/..."   # play a full URL (quote it if it has &)
-yt search terms here        # search YouTube, play the first result
-```
-
-### Interactive search (recommended for anything ambiguous)
-
-```bash
-yt -l search terms          # fzf picker: title / channel / views / length
-yt -L search terms          # same picker, but shows full details before playing
-```
-
-Type to filter, arrow keys to move, Enter to play, Esc to cancel.
-
-### Played on a loop
-
-```bash
-yt -loop lofi hip hop radio       # loops the resolved video forever
-yt --study my_lecture_playlist -loop   # loops the whole playlist
-```
-
-`-loop` can go anywhere in the command — before or after your search
-terms, it doesn't matter:
-
-```bash
-yt lofi hip hop radio -loop     # also works
-```
-
-### Playback quality / audio-only
-
-```bash
-yt -480 some video      # cap at 480p
-yt -720 some video      # cap at 720p (default)
-yt -1080 some video     # cap at 1080p
-yt -a some podcast       # audio only, no video decoding at all
-```
-
-### Playlists you haven't saved yet
-
-```bash
-yt "https://youtube.com/playlist?list=PL..."   # browse/play, not saved
-yt PL4cUxeGkcC9gm4_-5UsNThsvpZ1qeh6qL           # bare playlist ID also works
-```
-
-Opens an fzf menu: **Play All**, **Shuffle All**, or jump straight to
-any specific track in the list.
-
-### Your saved library
-
-```bash
-yt --save-playlist "https://youtube.com/playlist?list=PL..."
-```
-
-Fetches the playlist and stores it locally under
-`~/.local/share/yt/playlists/`, keyed by a slugified version of its
-title (e.g. "Physics Wallah - Electrostatics!" →
-`physics_wallah_electrostatics.json`).
-
-```bash
-yt --playlists          # or: yt --library
-```
-
-Browse everything you've saved, in the same Play All / Shuffle All /
-jump-to-track picker as above.
-
-```bash
-yt --study                    # browse saved playlists, resume instantly on pick
-yt --study physics_wallah     # resume a specific saved playlist by name
-```
-
-`--study` is the "pick up exactly where I left off" command — it uses
-mpv's own resume data (matched by URL) to jump back to the precise
-video and timestamp you stopped at.
-
-```bash
-yt --shuffle physics_wallah     # play a saved playlist in random order
-```
-
-```bash
-yt --sync                       # refetch ALL saved playlists, report new videos
-yt --sync physics_wallah        # refetch just one, report new videos
-```
-
-Playlist owners add new videos over time — `--sync` refreshes your
-local copy and tells you how many new videos showed up, without
-losing your existing data.
-
-```bash
-yt --queue physics_wallah,chemistry_basics,exam_revision
-```
-
-Plays several saved playlists back to back in a single session (comma
-separated, no spaces needed around the commas). Combine with `-loop`
-to loop the entire queue forever.
-
-### Maintenance
-
-```bash
-yt --clean
-```
-
-An on-demand deep clean for when you're tight on disk right now. This
-wipes yt-dlp's cache, the script's scratch space, **and every** resume
-point in `watch_later` (not just the stale ones the automatic cleanup
-prunes) — so you'll lose your place in anything you were mid-way
-through. Your saved playlists themselves are never deleted by this.
-
----
-
-## Command cheat sheet
-
-| Command | What it does |
-|---|---|
-| `yt VIDEO_ID` / `yt URL` | Play directly |
-| `yt search terms` | Search, play first result |
-| `yt -l search terms` | Interactive search picker |
-| `yt -L search terms` | Interactive search picker + full details first |
-| `yt -loop ...` | Loop the video/playlist forever (works anywhere in the command) |
-| `yt -480` / `-720` / `-1080` | Cap playback resolution |
-| `yt -a` / `-audio` | Audio only |
-| `yt PLAYLIST_URL_OR_ID` | Browse/play a playlist without saving it |
-| `yt --save-playlist URL` | Save a playlist to your local library |
-| `yt --playlists` / `--library` | Browse your saved playlists |
-| `yt --study [NAME]` | Resume a saved playlist where you left off |
-| `yt --sync [NAME]` | Refetch playlist(s), report new videos |
-| `yt --shuffle NAME` | Play a saved playlist shuffled |
-| `yt --queue A,B,C` | Play several saved playlists back to back |
-| `yt --clean` | Deep-clean cache + all resume points now |
-
----
-
-## Tuning for low-end hardware
-
-The defaults in this script are tuned for exactly the kind of machine
-that inspired it — an old dual-core CPU with no real hardware video
-decoding and a small amount of RAM. If you're running on similar
-hardware, these should just work out of the box. If you're on
-something newer, the relevant variables are all clearly labeled near
-the top of the script:
-
-- `QUALITY` — default playback resolution cap
-- `HWDEC` — hardware decode mode (off by default on old Intel chips
-  with no reliable H.264 hw decode path)
-- `VO_CHAIN` — mpv's video output driver priority list
-- `CPU_THREADS` — decoder thread count, match to your actual CPU
-- `DEMUX_MAX` / `DEMUX_BACK` — how much mpv buffers in RAM
-- `CACHE_MAX_AGE_DAYS` — how long unused resume points are kept before
-  automatic pruning
-
-If mpv prints warnings on startup about Vulkan, old GLSL versions, or
-"Late SEI is not implemented" on stock configs — these are all
-harmless fallback/decoder notices on older graphics hardware, not
-actual errors, and this script already quiets the noisy ones by
-default.
-
----
-
-## Requirements
-
-- `bash`
-- [`mpv`](https://mpv.io/)
-- [`yt-dlp`](https://github.com/yt-dlp/yt-dlp)
-- [`jq`](https://stedolan.github.io/jq/)
-- [`fzf`](https://github.com/junegunn/fzf)
-
-All available via `apt` on Debian/Ubuntu/MX Linux (yt-dlp best via
-`pipx`/`pip` as noted above for faster updates).
-
----
-
-## Contributing
-
-Found a bug, or hit a warning this README doesn't explain? Issues and
-pull requests are welcome — this script was built to fix a real
-problem on real underpowered hardware, so reports from other low-end
-setups are especially useful.
+Run `yt --help` or `yt -h` for usage information.
 
 ---
 
@@ -664,8 +220,8 @@ If this utility has helped you breathe new life into an old computer, and you'd 
   <img src="https://img.shields.io/badge/X-@novarchx-000000?style=for-the-badge&logo=x&logoColor=white" alt="X">
 </a>
 
-<a href="https://telegram.dog/ryncarter">
-  <img src="https://img.shields.io/badge/Telegram-@ryncarter-26A5E4?style=for-the-badge&logo=telegram&logoColor=white" alt="Telegram">
+<a href="https://telegram.dog/loganzen">
+  <img src="https://img.shields.io/badge/Telegram-@loganzen-26A5E4?style=for-the-badge&logo=telegram&logoColor=white" alt="Telegram">
 </a>
 
 <a href="https://www.web.us.kg/">
