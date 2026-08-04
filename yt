@@ -34,8 +34,15 @@
 # shellcheck disable=SC1091  # We intentionally source files; not checking them individually
 set -Eeuo pipefail
 
-# This script's directory (for sourcing library modules)
-LIB_DIR="$(dirname "${BASH_SOURCE[0]}")/lib"
+# Resolve the real script path so symlinked launchers still find their library modules.
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+while [[ -L "$SCRIPT_PATH" ]]; do
+    SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_PATH")" && pwd)"
+    SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+    [[ "$SCRIPT_PATH" != /* ]] && SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_PATH"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_PATH")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/lib"
 readonly LIB_DIR
 
 # ---------------------------------------------------------------------------
