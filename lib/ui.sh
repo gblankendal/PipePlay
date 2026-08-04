@@ -16,6 +16,7 @@ Usage:
   yt VIDEO_ID
   yt URL
   yt search terms
+  yt                    Start a blank search prompt
   yt -l search terms
   yt -L search terms
 
@@ -41,6 +42,10 @@ Options (can go anywhere on the command line):
   -a, -audio    Audio only
   -l            Interactive search (fzf)
   -L            Interactive search (fzf) with detailed metadata before playback
+  --search, -s  Open a blank search prompt before running fzf
+  --max-fps N   Restrict playback to videos with <= N FPS
+  --block-60fps Same as --max-fps 30
+  -h, --help    Show this usage message
   -loop         Loop the current video (or whole playlist) forever
 EOF
 }

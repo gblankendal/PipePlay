@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=PipePlay
+Comment=Search and play YouTube videos from the terminal
+Exec=/home/$USER/src/PipePlay/yt
+Terminal=true
+Categories=AudioVideo;Player;Network;
+StartupNotify=true

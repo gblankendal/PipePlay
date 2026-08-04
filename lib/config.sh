@@ -18,26 +18,30 @@
 # Adjust these values when running on different hardware:
 
 # Default video quality (720 matches ~1366x768 display; 1080 burns CPU)
-readonly DEFAULT_QUALITY=720
+readonly DEFAULT_QUALITY="${DEFAULT_QUALITY:-720}"
 
 # Hardware acceleration: "no" (software only) or "auto" (probe for hw decode)
 # G41/Mesa has no reliable H.264 hw decode, so default is "no".
 # Change to "auto" on newer hardware.
-readonly HWDEC_MODE="no"
+readonly HWDEC_MODE="${HWDEC_MODE:-no}"
 
 # Video output chain: gpu (via Mesa) with x11 fallback
 # xv was tried but performs software path ("X11 can't keep up")
-readonly VO_CHAIN="gpu,x11"
+readonly VO_CHAIN="${VO_CHAIN:-gpu,x11}"
 
 # Number of threads for video decoding (matches available cores)
-readonly DECODE_THREADS=2
+readonly DECODE_THREADS="${DECODE_THREADS:-2}"
 
 # Demuxer cache limits (for 4GB RAM and small SSD)
-readonly DEMUX_MAX_BYTES="50MiB"
-readonly DEMUX_BACK_BYTES="25MiB"
+readonly DEMUX_MAX_BYTES="${DEMUX_MAX_BYTES:-50MiB}"
+readonly DEMUX_BACK_BYTES="${DEMUX_BACK_BYTES:-25MiB}"
 
 # Maximum age (in days) before watch_later entries are auto-pruned
-readonly CACHE_MAX_AGE_DAYS=45
+readonly CACHE_MAX_AGE_DAYS="${CACHE_MAX_AGE_DAYS:-45}"
+
+# Maximum FPS to allow for video download/selection.
+# Set to 0 to allow all framerates.
+MAX_FPS="${MAX_FPS:-0}"
 
 # ---------------------------------------------------------------------------
 # DATA DIRECTORIES (XDG compliant)
@@ -74,12 +78,14 @@ readonly SEARCH_RESULTS_LIMIT=10
 readonly SEARCH_PLAYLIST_LIMIT=10
 
 # Video quality presets (in resolution order)
-declare -A QUALITY_FORMATS=(
-    [480]="bestvideo[height<=480][vcodec^=avc1]+bestaudio/best[height<=480]"
-    [720]="bestvideo[height<=720][vcodec^=avc1]+bestaudio/best[height<=720]"
-    [1080]="bestvideo[height<=1080][vcodec^=avc1]+bestaudio/best[height<=1080]"
-    [audio]="bestaudio"
-)
+if [[ -z "${QUALITY_FORMATS+x}" ]]; then
+    declare -A QUALITY_FORMATS=(
+        [480]="bestvideo[height<=480][vcodec^=avc1]+bestaudio/best[height<=480]"
+        [720]="bestvideo[height<=720][vcodec^=avc1]+bestaudio/best[height<=720]"
+        [1080]="bestvideo[height<=1080][vcodec^=avc1]+bestaudio/best[height<=1080]"
+        [audio]="bestaudio"
+    )
+fi
 
 # Default quality format (used when no -quality flag specified)
 readonly DEFAULT_VIDEO_FORMAT="${QUALITY_FORMATS[${DEFAULT_QUALITY}]}"
@@ -105,16 +111,32 @@ init_xdg_dirs() {
 get_format_string() {
     local quality="${1:-$DEFAULT_QUALITY}"
     local audio_only="${2:-0}"
-    
+    local format
+
     if [[ $audio_only -eq 1 ]]; then
-        echo "${QUALITY_FORMATS[audio]}"
+        format="${QUALITY_FORMATS[audio]}"
     else
         if [[ -v QUALITY_FORMATS[$quality] ]]; then
-            echo "${QUALITY_FORMATS[$quality]}"
+            format="${QUALITY_FORMATS[$quality]}"
         else
             log_warn "Unknown quality: $quality, using default (${DEFAULT_QUALITY}p)"
-            echo "$DEFAULT_VIDEO_FORMAT"
+            format="$DEFAULT_VIDEO_FORMAT"
         fi
+    fi
+
+    if [[ $audio_only -eq 1 || ${MAX_FPS:-0} -le 0 ]]; then
+        echo "$format"
+        return 0
+    fi
+
+    # Add an FPS cap to the video selector only, preserving audio/fallback behavior.
+    if [[ "$format" == *+* ]]; then
+        local video_part="${format%%+*}"
+        local remainder="${format#*+}"
+        video_part="${video_part}[fps<=${MAX_FPS}]"
+        echo "${video_part}+${remainder}"
+    else
+        echo "${format}[fps<=${MAX_FPS}]"
     fi
 }
 
