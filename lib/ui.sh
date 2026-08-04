@@ -16,6 +16,7 @@ Usage:
   yt VIDEO_ID
   yt URL
   yt search terms
+  yt                    Start a blank search prompt
   yt -l search terms
   yt -L search terms
 

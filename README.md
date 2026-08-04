@@ -180,6 +180,7 @@ yt never gonna give you up
 yt https://youtu.be/dQw4w9WgXcQ
 yt -l never gonna give you up
 yt -L never gonna give you up
+yt
 yt --search
 yt --block-60fps never gonna give you up
 yt --max-fps 30 never gonna give you up
@@ -192,6 +193,9 @@ yt --queue PlaylistA,PlaylistB
 yt --clean
 yt --help
 ```
+
+Running `yt` with no query starts a blank search prompt, which is handy if you
+launch it from a desktop entry or just want to type a search term interactively.
 
 ## Config
 

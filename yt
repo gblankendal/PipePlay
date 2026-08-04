@@ -6,6 +6,7 @@
 #   yt VIDEO_ID
 #   yt URL
 #   yt search terms
+#   yt                            (start a blank search prompt)
 #   yt -l search terms            (interactive fzf search)
 #   yt -L search terms            (interactive fzf search + detailed metadata)
 #
@@ -329,6 +330,12 @@ main() {
     # Export config for child processes
     export_mpv_config
     
+    # If the user launches the script without a query, open a blank search prompt
+    # so desktop launchers and casual invocations feel natural.
+    if [[ -z "$ACTION" && -z "$QUERY" && $LIST_MODE -eq 0 ]]; then
+        LIST_MODE=1
+    fi
+
     # Dispatch to appropriate action handler
     case "$ACTION" in
         save_playlist)    action_save_playlist ;;
