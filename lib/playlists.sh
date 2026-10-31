@@ -119,11 +119,13 @@ browse_saved_playlist() {
     videos_tsv=$(jq -r '.videos[] | [(.title), (.channel), (.duration)] | @tsv' "$file") || die "Failed to read playlist videos"
     
     # Get user's action from fzf picker
-    local pl_url start_idx shuffle_flag
-    read -r pl_url start_idx shuffle_flag < <(get_playlist_action "$name" "$url" "$videos_tsv") || return 0
+    local action
+    action=$(get_playlist_action "$name" "$url" "$videos_tsv") || return 0
+    local -a action_fields
+    mapfile -t action_fields <<< "$action"
     
     # Play based on the selected action
-    play_playlist "$pl_url" "$start_idx" "$shuffle_flag"
+    play_playlist "${action_fields[0]}" "${action_fields[1]}" "${action_fields[2]}"
 }
 
 # Resume playback of a saved playlist (uses mpv's resume data)
@@ -256,9 +258,11 @@ browse_adhoc_playlist() {
         [(.title // "Unknown"), (.channel // .uploader // "Unknown"), (.duration // 0)] | @tsv' <<< "$json") || die "Failed to parse videos"
     
     # Get user's action from fzf picker
-    local pl_url start_idx shuffle_flag
-    read -r pl_url start_idx shuffle_flag < <(get_playlist_action "$title" "$url" "$videos_tsv") || return 0
+    local action
+    action=$(get_playlist_action "$title" "$url" "$videos_tsv") || return 0
+    local -a action_fields
+    mapfile -t action_fields <<< "$action"
     
     # Play based on the selected action
-    play_playlist "$pl_url" "$start_idx" "$shuffle_flag"
+    play_playlist "${action_fields[0]}" "${action_fields[1]}" "${action_fields[2]}"
 }
